@@ -1,0 +1,39 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to DigitalOcean
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            echo "🚀 Starting deploy..."
+
+            cd /home/lom/wontech-backend
+
+            echo "📥 Pulling latest code"
+            git pull origin main
+
+            echo "📦 Installing dependencies (yarn)"
+            yarn install
+
+            echo "🏗 Building project"
+            yarn build
+
+            echo "♻️ Restarting PM2"
+            pm2 restart wontech-backend --update-env || pm2 start dist/main.js --name wontech-backend
+
+            echo "💾 Saving PM2 state"
+            pm2 save
+
+            echo "✅ Deploy complete"
