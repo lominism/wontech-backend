@@ -11,8 +11,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // 👇 Allow multiple frontends (dev + prod)
-  const allowedOrigins =
-    process.env.FRONTEND_URLS?.split(',') || ['http://localhost:3000'];
+  const allowedOrigins = (
+    process.env.FRONTEND_URLS?.split(',') ??
+    (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : ['http://localhost:3000'])
+  )
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
   app.enableCors({
     origin: (origin, callback) => {
