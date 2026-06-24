@@ -13,6 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "seed:products": "NODE_ENV=development ts-node src/database/seeds/seed-products.ts",
+    "seed:clinics": "NODE_ENV=development ts-node src/database/seeds/seed-clinics.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",

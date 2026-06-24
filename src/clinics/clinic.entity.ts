@@ -37,7 +37,13 @@ export class Clinic {
   name: string;
 
   @Column()
-  address: string;
+  address_street: string;
+
+  @Column()
+  address_city: string;
+
+  @Column()
+  address_code: string;
 
   @Column()
   contact_email: string;
