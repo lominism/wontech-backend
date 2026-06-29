@@ -48,6 +48,12 @@ export class Product {
   @Column({ type: 'text', nullable: true })
   image_url?: string | null;
 
+  @Column({ type: 'jsonb', default: [] })
+  image_urls: string[];
+
+  @Column({ type: 'boolean', default: true })
+  is_active: boolean;
+
   @OneToOne(() => InventoryStock, (stock) => stock.product)
   stock: InventoryStock;
 

@@ -1,4 +1,4 @@
-export class CreateProductDto {
+export class UpdateProductDto {
   sku: string;
   name: string;
   category: string;
@@ -12,5 +12,5 @@ export class CreateProductDto {
   originCountry?: string | null;
   imageUrl?: string | null;
   imageUrls?: string[] | null;
+  isActive?: boolean;
 }
-
