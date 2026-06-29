@@ -8,6 +8,8 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { ClinicsModule } from './clinics/clinics.module';
+import { PublicModule } from './public/public.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { ClinicsModule } from './clinics/clinics.module';
     UsersModule,
     ProductsModule,
     ClinicsModule,
+    PublicModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
