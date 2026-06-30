@@ -7,14 +7,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { ClinicsService } from '../clinics/clinics.service';
-import { CreditLedgerReason } from '../clinics/clinic-group-credit-ledger.entity';
-import { ClinicGroupCreditLedgerEntry } from '../clinics/clinic-group-credit-ledger.entity';
 import { EmailService } from '../email/email.service';
 import { CreateOrderDto } from '../orders/dto/create-order.dto';
-import { Order, OrderStatus } from '../orders/order.entity';
+import { Order, OrderSource, OrderStatus } from '../orders/order.entity';
+import { OrderFulfillmentService } from '../orders/order-fulfillment.service';
 import { ProductsService } from '../products/products.service';
-import { InventoryStock } from '../products/stock.entity';
-import { Sale } from '../sales/sale.entity';
 
 export type PublicShopProduct = {
   id: string;
@@ -45,6 +42,8 @@ export type PublicTrackResponse = {
   quantity: number;
   total: number;
   updatedAt: string;
+  carrier: string | null;
+  trackingNumber: string | null;
 };
 
 @Injectable()
@@ -53,14 +52,9 @@ export class PublicService {
     private readonly clinicsService: ClinicsService,
     private readonly productsService: ProductsService,
     private readonly emailService: EmailService,
+    private readonly fulfillmentService: OrderFulfillmentService,
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
-    @InjectRepository(InventoryStock)
-    private readonly stockRepo: Repository<InventoryStock>,
-    @InjectRepository(Sale)
-    private readonly salesRepo: Repository<Sale>,
-    @InjectRepository(ClinicGroupCreditLedgerEntry)
-    private readonly ledgerRepo: Repository<ClinicGroupCreditLedgerEntry>,
   ) {}
 
   async getShopProduct(
@@ -141,6 +135,7 @@ export class PublicService {
       unit_price_snapshot: product.price,
       commission_snapshot: product.commission_amount ?? null,
       status: OrderStatus.PENDING_PAYMENT,
+      source: OrderSource.WONTECH,
       tracking_token: this.generateTrackingToken(),
     });
 
@@ -167,59 +162,32 @@ export class PublicService {
       throw new BadRequestException('Order is not awaiting payment');
     }
 
-    const stock = await this.stockRepo.findOne({
-      where: { product_id: order.product_id },
-    });
-    if (!stock || stock.quantity_on_hand < order.quantity) {
-      throw new BadRequestException('Insufficient stock');
-    }
-
-    stock.quantity_on_hand -= order.quantity;
-    await this.stockRepo.save(stock);
+    await this.fulfillmentService.decrementStock(
+      order.product_id,
+      order.quantity,
+    );
 
     order.status = OrderStatus.AWAITING_SHIPMENT;
     order.payment_provider = 'stub';
     order.payment_reference = `stub_${randomBytes(8).toString('hex')}`;
     await this.ordersRepo.save(order);
 
-    const purchasedOn = new Date().toISOString().slice(0, 10);
-    const sale = this.salesRepo.create({
-      group_id: order.clinic.group_id,
-      clinic_id: order.clinic_id,
-      product_id: order.product_id,
-      purchased_on: purchasedOn,
-      quantity: order.quantity,
-      unit_price_snapshot: order.unit_price_snapshot,
-      commission_snapshot: order.commission_snapshot ?? null,
-    });
-    const savedSale = await this.salesRepo.save(sale);
-
-    if (order.commission_snapshot) {
-      const commissionTotal =
-        Number(order.commission_snapshot) * order.quantity;
-      const ledger = this.ledgerRepo.create({
-        group_id: order.clinic.group_id,
-        occurred_at: new Date(),
-        change_amount: String(commissionTotal),
-        reason: CreditLedgerReason.COMMISSION,
-        related_sale_id: savedSale.id,
-        note: `Commission for order ${order.order_no}`,
-      });
-      await this.ledgerRepo.save(ledger);
-    }
+    await this.fulfillmentService.recordSaleAndCommission(order);
 
     const total = Number(order.unit_price_snapshot) * order.quantity;
     const trackingUrl = `${frontendUrl}/track/${order.tracking_token}`;
 
-    await this.emailService.sendOrderReceipt({
-      to: order.customer_email,
-      customerName: order.customer_name,
-      orderNo: order.order_no,
-      productName: order.product.name,
-      quantity: order.quantity,
-      total,
-      trackingUrl,
-    });
+    if (order.customer_email) {
+      await this.emailService.sendOrderReceipt({
+        to: order.customer_email,
+        customerName: order.customer_name ?? 'Customer',
+        orderNo: order.order_no,
+        productName: order.product.name,
+        quantity: order.quantity,
+        total,
+        trackingUrl,
+      });
+    }
 
     return {
       orderId: order.id,
@@ -246,6 +214,8 @@ export class PublicService {
       quantity: order.quantity,
       total: Number(order.unit_price_snapshot) * order.quantity,
       updatedAt: order.updatedAt.toISOString(),
+      carrier: order.carrier ?? null,
+      trackingNumber: order.tracking_number ?? null,
     };
   }
 
