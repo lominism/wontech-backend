@@ -15,7 +15,14 @@ export enum OrderStatus {
   PAID = 'paid',
   AWAITING_SHIPMENT = 'awaiting_shipment',
   SHIPPED = 'shipped',
+  COMPLETED = 'completed',
   CANCELLED = 'cancelled',
+}
+
+export enum OrderSource {
+  WONTECH = 'wontech',
+  LAZADA = 'lazada',
+  SHOPEE = 'shopee',
 }
 
 @Entity('orders')
@@ -26,12 +33,12 @@ export class Order {
   @Column({ unique: true })
   order_no: string;
 
-  @ManyToOne(() => Clinic, { nullable: false })
+  @ManyToOne(() => Clinic, { nullable: true })
   @JoinColumn({ name: 'clinic_id' })
-  clinic: Clinic;
+  clinic?: Clinic | null;
 
-  @Column({ type: 'uuid' })
-  clinic_id: string;
+  @Column({ type: 'uuid', nullable: true })
+  clinic_id?: string | null;
 
   @ManyToOne(() => Product, { nullable: false })
   @JoinColumn({ name: 'product_id' })
@@ -40,23 +47,23 @@ export class Order {
   @Column({ type: 'uuid' })
   product_id: string;
 
-  @Column()
-  customer_name: string;
+  @Column({ type: 'varchar', nullable: true })
+  customer_name?: string | null;
 
-  @Column()
-  customer_email: string;
+  @Column({ type: 'varchar', nullable: true })
+  customer_email?: string | null;
 
-  @Column()
-  customer_phone: string;
+  @Column({ type: 'varchar', nullable: true })
+  customer_phone?: string | null;
 
-  @Column()
-  shipping_address_street: string;
+  @Column({ type: 'varchar', nullable: true })
+  shipping_address_street?: string | null;
 
-  @Column()
-  shipping_address_city: string;
+  @Column({ type: 'varchar', nullable: true })
+  shipping_address_city?: string | null;
 
-  @Column()
-  shipping_address_code: string;
+  @Column({ type: 'varchar', nullable: true })
+  shipping_address_code?: string | null;
 
   @Column({ type: 'int', default: 1 })
   quantity: number;
@@ -67,8 +74,19 @@ export class Order {
   @Column({ type: 'numeric', nullable: true })
   commission_snapshot?: string | null;
 
-  @Column({ type: 'enum', enum: OrderStatus, default: OrderStatus.PENDING_PAYMENT })
+  @Column({
+    type: 'enum',
+    enum: OrderStatus,
+    default: OrderStatus.PENDING_PAYMENT,
+  })
   status: OrderStatus;
+
+  @Column({
+    type: 'enum',
+    enum: OrderSource,
+    default: OrderSource.WONTECH,
+  })
+  source: OrderSource;
 
   @Column({ unique: true })
   tracking_token: string;
@@ -78,6 +96,15 @@ export class Order {
 
   @Column({ type: 'text', nullable: true })
   payment_reference?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  shipped_at?: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  carrier?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  tracking_number?: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

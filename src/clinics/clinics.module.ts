@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { UsersModule } from '../users/users.module';
+import { Sale } from '../sales/sale.entity';
 import { Clinic } from './clinic.entity';
 import { ClinicGroup } from './clinic-group.entity';
 import { ClinicInvite } from './clinic-invite.entity';
@@ -17,8 +19,10 @@ import { ClinicsService } from './clinics.service';
       ClinicInvite,
       ClinicUser,
       ClinicGroupCreditLedgerEntry,
+      Sale,
     ]),
     AuthModule,
+    UsersModule,
   ],
   controllers: [ClinicsController],
   providers: [ClinicsService],
