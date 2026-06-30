@@ -270,6 +270,26 @@ export class OrdersService {
     return this.toListItem(withRelations);
   }
 
+  async listRecentCountable(limit = 12): Promise<OrderListItem[]> {
+    const orders = await this.ordersRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.clinic', 'clinic')
+      .leftJoinAndSelect('order.product', 'product')
+      .where('order.status IN (:...statuses)', {
+        statuses: [
+          OrderStatus.PAID,
+          OrderStatus.AWAITING_SHIPMENT,
+          OrderStatus.SHIPPED,
+          OrderStatus.COMPLETED,
+        ],
+      })
+      .orderBy('order.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
+
+    return orders.map((order) => this.toListItem(order));
+  }
+
   async getById(id: string): Promise<OrderDetail> {
     const order = await this.ordersRepo.findOne({
       where: { id },

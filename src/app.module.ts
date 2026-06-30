@@ -12,6 +12,7 @@ import { ClinicsModule } from './clinics/clinics.module';
 import { PublicModule } from './public/public.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { OrdersModule } from './orders/orders.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { OrdersModule } from './orders/orders.module';
     PublicModule,
     UploadsModule,
     OrdersModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],
