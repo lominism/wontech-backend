@@ -5,18 +5,17 @@ import { UsersModule } from '../users/users.module';
 import { Sale } from '../sales/sale.entity';
 import { Clinic } from './clinic.entity';
 import { ClinicGroup } from './clinic-group.entity';
-import { ClinicInvite } from './clinic-invite.entity';
 import { ClinicUser } from './clinic-user.entity';
 import { ClinicGroupCreditLedgerEntry } from './clinic-group-credit-ledger.entity';
 import { ClinicsController } from './clinics.controller';
 import { ClinicsService } from './clinics.service';
+import { RolesGuard } from '../auth/roles.guard';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Clinic,
       ClinicGroup,
-      ClinicInvite,
       ClinicUser,
       ClinicGroupCreditLedgerEntry,
       Sale,
@@ -25,7 +24,7 @@ import { ClinicsService } from './clinics.service';
     UsersModule,
   ],
   controllers: [ClinicsController],
-  providers: [ClinicsService],
+  providers: [ClinicsService, RolesGuard],
   exports: [ClinicsService],
 })
 export class ClinicsModule {}

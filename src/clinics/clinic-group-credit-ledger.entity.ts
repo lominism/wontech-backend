@@ -40,12 +40,17 @@ export class ClinicGroupCreditLedgerEntry {
   @Column({ type: 'enum', enum: CreditLedgerReason })
   reason: CreditLedgerReason;
 
-  @ManyToOne(() => User, { nullable: true })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'performed_by_backoffice_user_id' })
   performedByBackofficeUser?: User | null;
 
   @Column({ type: 'uuid', nullable: true })
   performed_by_backoffice_user_id?: string | null;
+
+  // Denormalized display name of the backoffice user who performed this entry,
+  // captured at write time so credit history survives a hard user delete.
+  @Column({ type: 'text', nullable: true })
+  performed_by_name?: string | null;
 
   @ManyToOne(() => ClinicUser, { nullable: true })
   @JoinColumn({ name: 'performed_by_clinic_user_id' })

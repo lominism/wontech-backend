@@ -4,6 +4,7 @@ export class CreateClinicDto {
   addressCity: string;
   addressCode: string;
   contactEmail: string;
+  contactPhone: string;
   parentClinicId?: string | null;
   newParentName?: string | null;
 }

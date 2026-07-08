@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   ManyToOne,
   OneToMany,
@@ -48,6 +49,10 @@ export class Clinic {
   @Column()
   contact_email: string;
 
+  // Nullable so existing clinic rows remain valid when the column is added.
+  @Column({ type: 'text', nullable: true })
+  contact_phone: string | null;
+
   @OneToMany(() => Sale, (sale) => sale.clinic)
   sales: Sale[];
 
@@ -56,5 +61,8 @@ export class Clinic {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date | null;
 }
 

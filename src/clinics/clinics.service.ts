@@ -14,6 +14,7 @@ import {
 } from './clinic-group-credit-ledger.entity';
 import { UsersService } from '../users/users.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
+import { UpdateClinicDto } from './dto/update-clinic.dto';
 import { AdjustCreditDto } from './dto/adjust-credit.dto';
 
 export type ClinicWithStats = Clinic & {
@@ -170,6 +171,7 @@ export class ClinicsService {
       change_amount: String(changeAmount),
       reason: CreditLedgerReason.ADJUSTMENT,
       performed_by_backoffice_user_id: backofficeUser.id,
+      performed_by_name: this.backofficeUserName(backofficeUser),
       note: dto.note?.trim() || null,
     });
 
@@ -192,12 +194,20 @@ export class ClinicsService {
     const addressCity = dto.addressCity?.trim();
     const addressCode = dto.addressCode?.trim();
     const contactEmail = dto.contactEmail?.trim();
+    const contactPhone = dto.contactPhone?.trim();
     const parentClinicId = dto.parentClinicId?.trim() || null;
     const newParentName = dto.newParentName?.trim() || null;
 
-    if (!name || !addressStreet || !addressCity || !addressCode || !contactEmail) {
+    if (
+      !name ||
+      !addressStreet ||
+      !addressCity ||
+      !addressCode ||
+      !contactEmail ||
+      !contactPhone
+    ) {
       throw new BadRequestException(
-        'Name, address, and contact email are required',
+        'Name, address, contact email, and contact phone are required',
       );
     }
 
@@ -227,6 +237,7 @@ export class ClinicsService {
         name,
         ...addressFields,
         contact_email: contactEmail,
+        contact_phone: contactPhone,
         group_id: parent.group_id,
         parent_clinic_id: parent.id,
       });
@@ -241,6 +252,7 @@ export class ClinicsService {
         address_city: '—',
         address_code: '—',
         contact_email: contactEmail,
+        contact_phone: contactPhone,
         group_id: savedGroup.id,
         parent_clinic_id: null,
       });
@@ -250,6 +262,7 @@ export class ClinicsService {
         name,
         ...addressFields,
         contact_email: contactEmail,
+        contact_phone: contactPhone,
         group_id: savedGroup.id,
         parent_clinic_id: savedParent.id,
       });
@@ -262,6 +275,7 @@ export class ClinicsService {
         name,
         ...addressFields,
         contact_email: contactEmail,
+        contact_phone: contactPhone,
         group_id: savedGroup.id,
         parent_clinic_id: null,
       });
@@ -270,6 +284,88 @@ export class ClinicsService {
 
     const [withStats] = await this.attachStats([saved]);
     return withStats;
+  }
+
+  async updateContact(
+    id: string,
+    dto: UpdateClinicDto,
+  ): Promise<ClinicWithStats> {
+    const clinic = await this.clinicsRepo.findOne({ where: { id } });
+    if (!clinic) {
+      throw new NotFoundException('Clinic not found');
+    }
+
+    if (dto.addressStreet !== undefined) {
+      const street = dto.addressStreet.trim();
+      if (!street) {
+        throw new BadRequestException('Street address is required');
+      }
+      clinic.address_street = street;
+    }
+
+    if (dto.addressCity !== undefined) {
+      const city = dto.addressCity.trim();
+      if (!city) {
+        throw new BadRequestException('City is required');
+      }
+      clinic.address_city = city;
+    }
+
+    if (dto.addressCode !== undefined) {
+      const code = dto.addressCode.trim();
+      if (!code) {
+        throw new BadRequestException('Postal code is required');
+      }
+      clinic.address_code = code;
+    }
+
+    if (dto.contactEmail !== undefined) {
+      const email = dto.contactEmail.trim();
+      if (!email) {
+        throw new BadRequestException('Contact email is required');
+      }
+      clinic.contact_email = email;
+    }
+
+    if (dto.contactPhone !== undefined) {
+      const phone = dto.contactPhone.trim();
+      if (!phone) {
+        throw new BadRequestException('Contact phone is required');
+      }
+      clinic.contact_phone = phone;
+    }
+
+    const saved = await this.clinicsRepo.save(clinic);
+    const [withStats] = await this.attachStats([saved]);
+    return withStats;
+  }
+
+  async deleteClinic(id: string): Promise<void> {
+    const clinic = await this.clinicsRepo.findOne({ where: { id } });
+    if (!clinic) {
+      throw new NotFoundException('Clinic not found');
+    }
+
+    const childCount = await this.clinicsRepo.count({
+      where: { parent_clinic_id: id },
+    });
+    if (childCount > 0) {
+      throw new BadRequestException(
+        "Remove this clinic's branches before deleting it",
+      );
+    }
+
+    const salesCount = await this.salesRepo.count({ where: { clinic_id: id } });
+    if (salesCount > 0) {
+      throw new BadRequestException(
+        'This clinic has recorded sales and cannot be deleted',
+      );
+    }
+
+    // Soft delete only: keep the row (and its group/FKs) intact so it can be
+    // restored later by clearing deletedAt. Members, by contrast, are hard
+    // deleted. TypeORM excludes soft-deleted rows from all standard queries.
+    await this.clinicsRepo.softDelete(id);
   }
 
   private applyClinicSort(
@@ -387,14 +483,25 @@ export class ClinicsService {
   }
 
   private ledgerUserName(entry: ClinicGroupCreditLedgerEntry): string {
+    // Prefer the denormalized name so history reads consistently even after the
+    // performing user has been hard-deleted. Fall back to the live relation for
+    // legacy rows written before denormalization, then to 'System'.
+    if (entry.performed_by_name) {
+      return entry.performed_by_name;
+    }
     const user = entry.performedByBackofficeUser;
     if (user) {
-      const parts = [user.firstName, user.lastName].filter(Boolean);
-      if (parts.length > 0) {
-        return parts.join(' ');
-      }
-      return user.email;
+      return this.backofficeUserName(user);
     }
     return 'System';
+  }
+
+  private backofficeUserName(user: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email: string;
+  }): string {
+    const parts = [user.firstName, user.lastName].filter(Boolean);
+    return parts.length > 0 ? parts.join(' ') : user.email;
   }
 }
