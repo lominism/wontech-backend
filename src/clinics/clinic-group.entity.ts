@@ -8,7 +8,6 @@ import {
 } from 'typeorm';
 import { Clinic } from './clinic.entity';
 import { ClinicUser } from './clinic-user.entity';
-import { ClinicInvite } from './clinic-invite.entity';
 import { ClinicGroupCreditLedgerEntry } from './clinic-group-credit-ledger.entity';
 import { Sale } from '../sales/sale.entity';
 
@@ -25,9 +24,6 @@ export class ClinicGroup {
 
   @OneToMany(() => ClinicUser, (user) => user.group)
   clinicUsers: ClinicUser[];
-
-  @OneToMany(() => ClinicInvite, (invite) => invite.group)
-  invites: ClinicInvite[];
 
   @OneToMany(
     () => ClinicGroupCreditLedgerEntry,

@@ -1,43 +1,43 @@
 import {
-    Column,
-    CreateDateColumn,
-    Entity,
-    PrimaryGeneratedColumn,
-    UpdateDateColumn,
-    DeleteDateColumn,
+  Column,
+  CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
 } from 'typeorm';
 
 export enum UserRole {
-    SUPER_ADMIN = 'super_admin',
-    USER = 'user',
+  OWNER = 'owner',
+  ADMIN = 'admin',
 }
 
 @Entity('users')
 export class User {
-    @PrimaryGeneratedColumn('uuid')
-    id: string;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-    @Column({unique: true})
-    firebaseUid: string;
-    
-    @Column({ unique: true })
-    email: string;
+  @Column({ unique: true })
+  firebaseUid: string;
 
-    @Column({ type: 'text', nullable: true })
-    firstName: string | null;
+  @Column({ unique: true })
+  email: string;
 
-    @Column({ type: 'text', nullable: true })
-    lastName: string | null;
+  @Column({ type: 'text', nullable: true })
+  firstName: string | null;
 
-    @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
-    role: UserRole;
+  @Column({ type: 'text', nullable: true })
+  lastName: string | null;
 
-    @CreateDateColumn()
-    createdAt: Date;
+  @Column({ type: 'varchar', length: 20, default: UserRole.ADMIN })
+  role: UserRole;
 
-    @UpdateDateColumn()
-    updatedAt: Date;
+  @CreateDateColumn()
+  createdAt: Date;
 
-    @DeleteDateColumn()
-    deletedAt: Date;
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date | null;
 }
