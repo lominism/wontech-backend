@@ -93,6 +93,27 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 - Website - [https://nestjs.com](https://nestjs.com/)
 - Twitter - [@nestframework](https://twitter.com/nestframework)
 
+## Stripe (public shop payments)
+
+Public checkout uses **Stripe Checkout** (hosted redirect). Configure these in `.env`:
+
+- `STRIPE_SECRET_KEY` — Dashboard → Developers → API keys (`sk_test_...` or `sk_live_...`)
+- `STRIPE_WEBHOOK_SECRET` — from a webhook endpoint or Stripe CLI (see below)
+
+**Local webhook forwarding:**
+
+```bash
+stripe listen --forward-to localhost:3001/webhooks/stripe
+```
+
+Copy the printed `whsec_...` into `STRIPE_WEBHOOK_SECRET`, then restart the backend.
+
+**Production:** Stripe Dashboard → Webhooks → add endpoint `https://<api-domain>/webhooks/stripe` with event `checkout.session.completed`. Use the signing secret from that endpoint.
+
+Test card: `4242 4242 4242 4242` (any future expiry, any CVC).
+
+`POST /public/payments/confirm` (stub) is disabled when `NODE_ENV=production`.
+
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

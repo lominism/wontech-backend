@@ -13,6 +13,8 @@ import { PublicModule } from './public/public.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { OrdersModule } from './orders/orders.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { StripeModule } from './stripe/stripe.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -26,7 +28,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
     UsersModule,
     ProductsModule,
     ClinicsModule,
+    StripeModule,
     PublicModule,
+    WebhooksModule,
     UploadsModule,
     OrdersModule,
     DashboardModule,
