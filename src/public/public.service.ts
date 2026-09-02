@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
@@ -12,6 +13,7 @@ import { CreateOrderDto } from '../orders/dto/create-order.dto';
 import { Order, OrderSource, OrderStatus } from '../orders/order.entity';
 import { OrderFulfillmentService } from '../orders/order-fulfillment.service';
 import { ProductsService } from '../products/products.service';
+import { StripeService } from '../stripe/stripe.service';
 
 export type PublicShopProduct = {
   id: string;
@@ -46,6 +48,12 @@ export type PublicTrackResponse = {
   trackingNumber: string | null;
 };
 
+export type PaymentStatusResponse = {
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  orderNo?: string;
+  trackingToken?: string;
+};
+
 @Injectable()
 export class PublicService {
   constructor(
@@ -53,6 +61,8 @@ export class PublicService {
     private readonly productsService: ProductsService,
     private readonly emailService: EmailService,
     private readonly fulfillmentService: OrderFulfillmentService,
+    private readonly stripeService: StripeService,
+    private readonly config: ConfigService,
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
   ) {}
@@ -148,7 +158,14 @@ export class PublicService {
     };
   }
 
-  async confirmPayment(orderId: string, frontendUrl: string) {
+  async createCheckoutSession(
+    orderId: string,
+    successUrl: string,
+    cancelUrl: string,
+  ): Promise<{ checkoutUrl: string }> {
+    this.assertAllowedRedirectUrl(successUrl);
+    this.assertAllowedRedirectUrl(cancelUrl);
+
     const order = await this.ordersRepo.findOne({
       where: { id: orderId },
       relations: { product: true, clinic: true },
@@ -162,19 +179,117 @@ export class PublicService {
       throw new BadRequestException('Order is not awaiting payment');
     }
 
+    const product = await this.productsService.getById(order.product_id);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const stock = product.stock?.quantity_on_hand ?? 0;
+    if (stock < order.quantity) {
+      throw new BadRequestException('Insufficient stock');
+    }
+
+    const unitAmountSatang = Math.round(Number(order.unit_price_snapshot) * 100);
+    if (unitAmountSatang <= 0) {
+      throw new BadRequestException('Invalid order amount');
+    }
+
+    const session = await this.stripeService.stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: order.customer_email ?? undefined,
+      line_items: [
+        {
+          quantity: order.quantity,
+          price_data: {
+            currency: 'thb',
+            unit_amount: unitAmountSatang,
+            product_data: {
+              name: order.product.name,
+            },
+          },
+        },
+      ],
+      metadata: { orderId: order.id },
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+    });
+
+    if (!session.url) {
+      throw new BadRequestException('Failed to create checkout session');
+    }
+
+    order.payment_provider = 'stripe';
+    order.payment_reference = session.id;
+    await this.ordersRepo.save(order);
+
+    return { checkoutUrl: session.url };
+  }
+
+  async getPaymentStatus(sessionId: string): Promise<PaymentStatusResponse> {
+    const session =
+      await this.stripeService.stripe.checkout.sessions.retrieve(sessionId);
+
+    const orderId = session.metadata?.orderId;
+    if (!orderId) {
+      throw new NotFoundException('Order not found for session');
+    }
+
+    if (session.payment_status === 'paid') {
+      await this.fulfillPaidOrder(orderId, 'stripe', session.id);
+    }
+
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      return {
+        status: 'paid',
+        orderNo: order.order_no,
+        trackingToken: order.tracking_token,
+      };
+    }
+
+    if (session.status === 'expired') {
+      return { status: 'failed' };
+    }
+
+    return { status: 'pending' };
+  }
+
+  async fulfillPaidOrder(
+    orderId: string,
+    provider: string,
+    reference: string,
+  ): Promise<void> {
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: { product: true, clinic: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      return;
+    }
+
     await this.fulfillmentService.decrementStock(
       order.product_id,
       order.quantity,
     );
 
     order.status = OrderStatus.AWAITING_SHIPMENT;
-    order.payment_provider = 'stub';
-    order.payment_reference = `stub_${randomBytes(8).toString('hex')}`;
+    order.payment_provider = provider;
+    order.payment_reference = reference;
     await this.ordersRepo.save(order);
 
     await this.fulfillmentService.recordSaleAndCommission(order);
 
     const total = Number(order.unit_price_snapshot) * order.quantity;
+    const frontendUrl = this.getDefaultFrontendUrl();
     const trackingUrl = `${frontendUrl}/track/${order.tracking_token}`;
 
     if (order.customer_email) {
@@ -188,6 +303,25 @@ export class PublicService {
         trackingUrl,
       });
     }
+  }
+
+  async confirmPayment(orderId: string, frontendUrl: string) {
+    await this.fulfillPaidOrder(
+      orderId,
+      'stub',
+      `stub_${randomBytes(8).toString('hex')}`,
+    );
+
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: { product: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const trackingUrl = `${frontendUrl}/track/${order.tracking_token}`;
 
     return {
       orderId: order.id,
@@ -217,6 +351,43 @@ export class PublicService {
       carrier: order.carrier ?? null,
       trackingNumber: order.tracking_number ?? null,
     };
+  }
+
+  private assertAllowedRedirectUrl(url: string): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException('Invalid redirect URL');
+    }
+
+    const allowedOrigins = this.getAllowedFrontendOrigins();
+    const origin = parsed.origin;
+    if (!allowedOrigins.includes(origin)) {
+      throw new BadRequestException('Redirect URL origin is not allowed');
+    }
+  }
+
+  private getAllowedFrontendOrigins(): string[] {
+    const fromList = this.config.get<string>('FRONTEND_URLS');
+    if (fromList) {
+      return fromList
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+
+    const single = this.config.get<string>('FRONTEND_URL');
+    if (single) {
+      return [single.trim()];
+    }
+
+    return ['http://localhost:3000'];
+  }
+
+  private getDefaultFrontendUrl(): string {
+    const origins = this.getAllowedFrontendOrigins();
+    return origins[0] ?? 'http://localhost:3000';
   }
 
   private async generateOrderNo(): Promise<string> {
