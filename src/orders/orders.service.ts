@@ -56,6 +56,7 @@ export type OrderDetail = {
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddressStreet: string | null;
+  shippingAddressStreet2: string | null;
   shippingAddressCity: string | null;
   shippingAddressCode: string | null;
   paymentProvider: string | null;
@@ -108,6 +109,7 @@ export class OrdersService {
     pageSize = 10,
     sortBy?: string,
     sortDir?: string,
+    productId?: string,
   ): Promise<OrderListResult> {
     await this.autoCompleteService.autoCompleteShippedOrders();
 
@@ -121,7 +123,17 @@ export class OrdersService {
 
     this.applyOrderSort(qb, sortBy, sortDir);
 
-    if (status === OrderStatus.COMPLETED) {
+    if (productId?.trim()) {
+      qb.andWhere('order.product_id = :productId', {
+        productId: productId.trim(),
+      });
+    }
+
+    if (status === 'sold') {
+      qb.andWhere('order.status NOT IN (:...excludedSold)', {
+        excludedSold: [OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED],
+      });
+    } else if (status === OrderStatus.COMPLETED) {
       qb.andWhere('order.status = :status', { status: OrderStatus.COMPLETED });
     } else if (!status || status === 'all') {
       qb.andWhere('order.status != :completed', {
@@ -240,6 +252,7 @@ export class OrdersService {
       customer_email: this.optionalTrim(dto.customerEmail),
       customer_phone: this.optionalTrim(dto.customerPhone),
       shipping_address_street: this.optionalTrim(dto.shippingAddressStreet),
+      shipping_address_street_2: this.optionalTrim(dto.shippingAddressStreet2),
       shipping_address_city: this.optionalTrim(dto.shippingAddressCity),
       shipping_address_code: this.optionalTrim(dto.shippingAddressCode),
       quantity,
@@ -558,6 +571,7 @@ export class OrdersService {
       customerEmail: order.customer_email ?? null,
       customerPhone: order.customer_phone ?? null,
       shippingAddressStreet: order.shipping_address_street ?? null,
+      shippingAddressStreet2: order.shipping_address_street_2 ?? null,
       shippingAddressCity: order.shipping_address_city ?? null,
       shippingAddressCode: order.shipping_address_code ?? null,
       paymentProvider: order.payment_provider ?? null,

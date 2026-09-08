@@ -27,6 +27,7 @@ export class OrdersController {
     @Query('pageSize') pageSize?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
+    @Query('productId') productId?: string,
   ) {
     return this.ordersService.list(
       search,
@@ -35,6 +36,7 @@ export class OrdersController {
       pageSize ? Number(pageSize) : 10,
       sortBy,
       sortDir,
+      productId,
     );
   }
 

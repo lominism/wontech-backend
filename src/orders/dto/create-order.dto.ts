@@ -5,6 +5,7 @@ export class CreateOrderDto {
   customerEmail: string;
   customerPhone: string;
   shippingAddressStreet: string;
+  shippingAddressStreet2?: string;
   shippingAddressCity: string;
   shippingAddressCode: string;
   quantity?: number;
