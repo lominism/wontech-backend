@@ -10,6 +10,7 @@ export class CreateManualOrderDto {
   customerEmail?: string | null;
   customerPhone?: string | null;
   shippingAddressStreet?: string | null;
+  shippingAddressStreet2?: string | null;
   shippingAddressCity?: string | null;
   shippingAddressCode?: string | null;
 }

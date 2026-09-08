@@ -139,6 +139,7 @@ export class PublicService {
       customer_email: dto.customerEmail.trim(),
       customer_phone: dto.customerPhone.trim(),
       shipping_address_street: dto.shippingAddressStreet.trim(),
+      shipping_address_street_2: dto.shippingAddressStreet2?.trim() || null,
       shipping_address_city: dto.shippingAddressCity.trim(),
       shipping_address_code: dto.shippingAddressCode.trim(),
       quantity,

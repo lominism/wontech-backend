@@ -60,6 +60,9 @@ export class Order {
   shipping_address_street?: string | null;
 
   @Column({ type: 'varchar', nullable: true })
+  shipping_address_street_2?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
   shipping_address_city?: string | null;
 
   @Column({ type: 'varchar', nullable: true })
