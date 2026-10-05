@@ -5,6 +5,7 @@ export class UpdateProductDto {
   price: number;
   stock: number;
   commission?: number | null;
+  kolCommission?: number | null;
   description?: string | null;
   brand?: string | null;
   weight?: string | null;

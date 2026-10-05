@@ -58,6 +58,10 @@ export class ProductsService {
         dto.commission === null || dto.commission === undefined
           ? null
           : String(dto.commission),
+      kol_commission_amount:
+        dto.kolCommission === null || dto.kolCommission === undefined
+          ? null
+          : String(dto.kolCommission),
       description: dto.description ?? null,
       brand: dto.brand ?? null,
       weight: dto.weight ?? null,
@@ -121,6 +125,10 @@ export class ProductsService {
       dto.commission === null || dto.commission === undefined
         ? null
         : String(dto.commission);
+    product.kol_commission_amount =
+      dto.kolCommission === null || dto.kolCommission === undefined
+        ? null
+        : String(dto.kolCommission);
     product.description = dto.description ?? null;
     product.brand = dto.brand ?? null;
     product.weight = dto.weight ?? null;

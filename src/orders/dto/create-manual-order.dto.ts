@@ -6,6 +6,7 @@ export class CreateManualOrderDto {
   quantity?: number;
   status: OrderStatus;
   clinicId?: string | null;
+  influencerId?: string | null;
   customerName?: string | null;
   customerEmail?: string | null;
   customerPhone?: string | null;

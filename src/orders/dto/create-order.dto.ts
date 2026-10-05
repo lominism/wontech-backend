@@ -1,5 +1,6 @@
 export class CreateOrderDto {
-  clinicId: string;
+  clinicId?: string;
+  influencerId?: string;
   productId: string;
   customerName: string;
   customerEmail: string;

@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { ClinicsService } from '../clinics/clinics.service';
 import { EmailService } from '../email/email.service';
+import { InfluencersService } from '../influencers/influencers.service';
 import { CreateOrderDto } from '../orders/dto/create-order.dto';
 import { Order, OrderSource, OrderStatus } from '../orders/order.entity';
 import { OrderFulfillmentService } from '../orders/order-fulfillment.service';
@@ -58,6 +59,7 @@ export type PaymentStatusResponse = {
 export class PublicService {
   constructor(
     private readonly clinicsService: ClinicsService,
+    private readonly influencersService: InfluencersService,
     private readonly productsService: ProductsService,
     private readonly emailService: EmailService,
     private readonly fulfillmentService: OrderFulfillmentService,
@@ -76,12 +78,27 @@ export class PublicService {
       throw new NotFoundException('Clinic not found');
     }
 
-    const product = await this.productsService.getById(productId);
-    if (!product) {
-      throw new NotFoundException('Product not found');
+    return this.buildShopResponse(clinic, productId);
+  }
+
+  async getInfluencerShopProduct(
+    influencerId: string,
+    productId: string,
+  ): Promise<PublicShopResponse> {
+    const influencer = await this.influencersService.getById(influencerId);
+    if (!influencer) {
+      throw new NotFoundException('Influencer not found');
     }
 
-    if (!product.is_active) {
+    return this.buildShopResponse(influencer, productId);
+  }
+
+  private async buildShopResponse(
+    partner: { id: string; name: string },
+    productId: string,
+  ): Promise<PublicShopResponse> {
+    const product = await this.productsService.getById(productId);
+    if (!product || !product.is_active) {
       throw new NotFoundException('Product not found');
     }
 
@@ -89,28 +106,63 @@ export class PublicService {
     const images = product.image_urls ?? [];
 
     return {
-      clinic: { id: clinic.id, name: clinic.name },
-      product: {
-        id: product.id,
-        name: product.name,
-        sku: product.sku,
-        category: product.category,
-        price: Number(product.price),
-        description: product.description ?? null,
-        brand: product.brand ?? null,
-        weight: product.weight ?? null,
-        dimensions: product.dimensions ?? null,
-        origin: product.origin_country ?? null,
-        image: images[0] ?? product.image_url ?? null,
-        images,
-        inStock: stock > 0,
-        stockAvailable: stock,
-      },
+      clinic: { id: partner.id, name: partner.name },
+      product: this.toPublicProduct(product, stock, images),
+    };
+  }
+
+  private toPublicProduct(
+    product: {
+      id: string;
+      name: string;
+      sku: string;
+      category: string;
+      price: string;
+      description?: string | null;
+      brand?: string | null;
+      weight?: string | null;
+      dimensions?: string | null;
+      origin_country?: string | null;
+      image_url?: string | null;
+    },
+    stock: number,
+    images: string[],
+  ): PublicShopProduct {
+    return {
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      category: product.category,
+      price: Number(product.price),
+      description: product.description ?? null,
+      brand: product.brand ?? null,
+      weight: product.weight ?? null,
+      dimensions: product.dimensions ?? null,
+      origin: product.origin_country ?? null,
+      image: images[0] ?? product.image_url ?? null,
+      images,
+      inStock: stock > 0,
+      stockAvailable: stock,
     };
   }
 
   async createOrder(dto: CreateOrderDto) {
-    const shop = await this.getShopProduct(dto.clinicId, dto.productId);
+    const clinicId = dto.clinicId?.trim() || null;
+    const influencerId = dto.influencerId?.trim() || null;
+
+    if (clinicId && influencerId) {
+      throw new BadRequestException(
+        'An order can be attributed to a clinic or an influencer, not both',
+      );
+    }
+
+    if (!clinicId && !influencerId) {
+      throw new BadRequestException('A clinic or influencer is required');
+    }
+
+    const shop = influencerId
+      ? await this.getInfluencerShopProduct(influencerId, dto.productId)
+      : await this.getShopProduct(clinicId!, dto.productId);
     if (!shop.product.inStock) {
       throw new BadRequestException('Product is out of stock');
     }
@@ -126,14 +178,10 @@ export class PublicService {
       throw new BadRequestException('Insufficient stock');
     }
 
-    const clinic = await this.clinicsService.getById(dto.clinicId);
-    if (!clinic) {
-      throw new NotFoundException('Clinic not found');
-    }
-
     const order = this.ordersRepo.create({
       order_no: await this.generateOrderNo(),
-      clinic_id: dto.clinicId,
+      clinic_id: influencerId ? null : clinicId,
+      influencer_id: influencerId,
       product_id: dto.productId,
       customer_name: dto.customerName.trim(),
       customer_email: dto.customerEmail.trim(),
@@ -144,18 +192,23 @@ export class PublicService {
       shipping_address_code: dto.shippingAddressCode.trim(),
       quantity,
       unit_price_snapshot: product.price,
-      commission_snapshot: product.commission_amount ?? null,
+      commission_snapshot: influencerId
+        ? (product.kol_commission_amount ?? null)
+        : (product.commission_amount ?? null),
       status: OrderStatus.PENDING_PAYMENT,
       source: OrderSource.WONTECH,
       tracking_token: this.generateTrackingToken(),
     });
 
     const saved = await this.ordersRepo.save(order);
+    const partnerSegment = influencerId
+      ? `influencer/${influencerId}`
+      : clinicId;
 
     return {
       orderId: saved.id,
       orderNo: saved.order_no,
-      paymentUrl: `/shop/${dto.clinicId}/${dto.productId}/checkout/pay?orderId=${saved.id}`,
+      paymentUrl: `/shop/${partnerSegment}/${dto.productId}/checkout/pay?orderId=${saved.id}`,
     };
   }
 
@@ -264,46 +317,29 @@ export class PublicService {
     provider: string,
     reference: string,
   ): Promise<void> {
-    const order = await this.ordersRepo.findOne({
-      where: { id: orderId },
-      relations: { product: true, clinic: true },
-    });
+    const paid = await this.fulfillmentService.settlePaidOrder(
+      orderId,
+      provider,
+      reference,
+    );
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+    if (!paid?.customer_email || !paid.product) {
       return;
     }
 
-    await this.fulfillmentService.decrementStock(
-      order.product_id,
-      order.quantity,
-    );
-
-    order.status = OrderStatus.AWAITING_SHIPMENT;
-    order.payment_provider = provider;
-    order.payment_reference = reference;
-    await this.ordersRepo.save(order);
-
-    await this.fulfillmentService.recordSaleAndCommission(order);
-
-    const total = Number(order.unit_price_snapshot) * order.quantity;
+    const total = Number(paid.unit_price_snapshot) * paid.quantity;
     const frontendUrl = this.getDefaultFrontendUrl();
-    const trackingUrl = `${frontendUrl}/track/${order.tracking_token}`;
+    const trackingUrl = `${frontendUrl}/track/${paid.tracking_token}`;
 
-    if (order.customer_email) {
-      await this.emailService.sendOrderReceipt({
-        to: order.customer_email,
-        customerName: order.customer_name ?? 'Customer',
-        orderNo: order.order_no,
-        productName: order.product.name,
-        quantity: order.quantity,
-        total,
-        trackingUrl,
-      });
-    }
+    await this.emailService.sendOrderReceipt({
+      to: paid.customer_email,
+      customerName: paid.customer_name ?? 'Customer',
+      orderNo: paid.order_no,
+      productName: paid.product.name,
+      quantity: paid.quantity,
+      total,
+      trackingUrl,
+    });
   }
 
   async confirmPayment(orderId: string, frontendUrl: string) {

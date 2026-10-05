@@ -15,6 +15,14 @@ import { PublicService } from './public.service';
 export class PublicController {
   constructor(private readonly publicService: PublicService) {}
 
+  @Get('shop/influencer/:influencerId/:productId')
+  getInfluencerShopProduct(
+    @Param('influencerId') influencerId: string,
+    @Param('productId') productId: string,
+  ) {
+    return this.publicService.getInfluencerShopProduct(influencerId, productId);
+  }
+
   @Get('shop/:clinicId/:productId')
   getShopProduct(
     @Param('clinicId') clinicId: string,

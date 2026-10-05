@@ -28,6 +28,9 @@ export class Product {
   @Column({ type: 'numeric', nullable: true })
   commission_amount?: string | null;
 
+  @Column({ type: 'numeric', nullable: true })
+  kol_commission_amount?: string | null;
+
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 

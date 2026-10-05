@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { ClinicsModule } from './clinics/clinics.module';
+import { InfluencersModule } from './influencers/influencers.module';
 import { PublicModule } from './public/public.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { OrdersModule } from './orders/orders.module';
@@ -28,6 +29,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     UsersModule,
     ProductsModule,
     ClinicsModule,
+    InfluencersModule,
     StripeModule,
     PublicModule,
     WebhooksModule,
