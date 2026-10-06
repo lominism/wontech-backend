@@ -9,7 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { InfluencerGroup } from './influencer-group.entity';
+import { Agency } from '../agencies/agency.entity';
 import { Sale } from '../sales/sale.entity';
 
 @Entity('influencers')
@@ -17,26 +17,27 @@ export class Influencer {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => InfluencerGroup, (group) => group.influencers, {
-    nullable: false,
-  })
-  @JoinColumn({ name: 'group_id' })
-  group: InfluencerGroup;
-
-  @Column({ type: 'uuid' })
-  group_id: string;
-
-  @ManyToOne(() => Influencer, (influencer) => influencer.children, {
+  @ManyToOne(() => Agency, (agency) => agency.influencers, {
     nullable: true,
   })
-  @JoinColumn({ name: 'parent_influencer_id' })
-  parentInfluencer?: Influencer | null;
+  @JoinColumn({ name: 'agency_id' })
+  agency?: Agency | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  agency_id?: string | null;
+
+  /**
+   * Deprecated: kept nullable so synchronize does not drop the column
+   * before OnModuleInit can migrate parent shells → agencies.
+   */
   @Column({ type: 'uuid', nullable: true })
   parent_influencer_id?: string | null;
 
-  @OneToMany(() => Influencer, (influencer) => influencer.parentInfluencer)
-  children: Influencer[];
+  /**
+   * Deprecated: kept nullable for ledger/group migration compatibility.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  group_id?: string | null;
 
   @Column()
   name: string;

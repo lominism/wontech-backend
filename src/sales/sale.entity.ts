@@ -8,7 +8,6 @@ import {
 } from 'typeorm';
 import { ClinicGroup } from '../clinics/clinic-group.entity';
 import { Clinic } from '../clinics/clinic.entity';
-import { InfluencerGroup } from '../influencers/influencer-group.entity';
 import { Influencer } from '../influencers/influencer.entity';
 import { Product } from '../products/product.entity';
 
@@ -31,10 +30,7 @@ export class Sale {
   @Column({ type: 'uuid', nullable: true })
   clinic_id?: string | null;
 
-  @ManyToOne(() => InfluencerGroup, (group) => group.sales, { nullable: true })
-  @JoinColumn({ name: 'influencer_group_id' })
-  influencerGroup?: InfluencerGroup | null;
-
+  /** Deprecated: kept nullable for existing rows; new sales omit this. */
   @Column({ type: 'uuid', nullable: true })
   influencer_group_id?: string | null;
 
@@ -72,4 +68,3 @@ export class Sale {
   @CreateDateColumn()
   createdAt: Date;
 }
-

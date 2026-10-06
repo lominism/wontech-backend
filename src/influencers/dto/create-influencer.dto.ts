@@ -5,6 +5,6 @@ export class CreateInfluencerDto {
   addressCode: string;
   contactEmail: string;
   contactPhone: string;
-  parentInfluencerId?: string | null;
-  newParentName?: string | null;
+  agencyId?: string | null;
+  newAgencyName?: string | null;
 }

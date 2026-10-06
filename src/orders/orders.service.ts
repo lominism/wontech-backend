@@ -546,7 +546,10 @@ export class OrdersService {
       orderNo: order.order_no,
       date: order.createdAt.toISOString(),
       customer: order.customer_name ?? sourceLabel ?? '—',
-      clinic: order.influencer?.name ?? order.clinic?.name ?? '—',
+      clinic:
+        order.influencer?.name ??
+        order.clinic?.name ??
+        (order.source === OrderSource.STOREFRONT ? 'Storefront' : '—'),
       item: order.product?.name ?? '',
       qty: order.quantity,
       status: order.status,
@@ -590,7 +593,9 @@ export class OrdersService {
       unitPrice,
       total: unitPrice * order.quantity,
       clinicId: order.clinic_id ?? null,
-      clinicName: order.clinic?.name ?? '—',
+      clinicName:
+        order.clinic?.name ??
+        (order.source === OrderSource.STOREFRONT ? 'Storefront' : '—'),
       influencerId: order.influencer_id ?? null,
       influencerName: order.influencer?.name ?? '—',
       customerName: order.customer_name ?? null,

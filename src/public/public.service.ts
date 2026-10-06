@@ -20,7 +20,7 @@ export type PublicShopProduct = {
   id: string;
   name: string;
   sku: string;
-  category: string;
+  category: string | null;
   price: number;
   description: string | null;
   brand: string | null;
@@ -93,6 +93,28 @@ export class PublicService {
     return this.buildShopResponse(influencer, productId);
   }
 
+  async listStorefrontProducts(): Promise<PublicShopProduct[]> {
+    const products = await this.productsService.list();
+    return products
+      .filter((product) => product.is_active)
+      .map((product) => {
+        const stock = product.stock?.quantity_on_hand ?? 0;
+        const images = product.image_urls ?? [];
+        return this.toPublicProduct(product, stock, images);
+      });
+  }
+
+  async getStorefrontProduct(productId: string): Promise<PublicShopProduct> {
+    const product = await this.productsService.getById(productId);
+    if (!product || !product.is_active) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const stock = product.stock?.quantity_on_hand ?? 0;
+    const images = product.image_urls ?? [];
+    return this.toPublicProduct(product, stock, images);
+  }
+
   private async buildShopResponse(
     partner: { id: string; name: string },
     productId: string,
@@ -116,7 +138,7 @@ export class PublicService {
       id: string;
       name: string;
       sku: string;
-      category: string;
+      category: string | null;
       price: string;
       description?: string | null;
       brand?: string | null;
@@ -132,7 +154,7 @@ export class PublicService {
       id: product.id,
       name: product.name,
       sku: product.sku,
-      category: product.category,
+      category: product.category ?? null,
       price: Number(product.price),
       description: product.description ?? null,
       brand: product.brand ?? null,
@@ -149,6 +171,7 @@ export class PublicService {
   async createOrder(dto: CreateOrderDto) {
     const clinicId = dto.clinicId?.trim() || null;
     const influencerId = dto.influencerId?.trim() || null;
+    const isStorefront = !clinicId && !influencerId;
 
     if (clinicId && influencerId) {
       throw new BadRequestException(
@@ -156,14 +179,19 @@ export class PublicService {
       );
     }
 
-    if (!clinicId && !influencerId) {
-      throw new BadRequestException('A clinic or influencer is required');
+    let productView: PublicShopProduct;
+    if (isStorefront) {
+      productView = await this.getStorefrontProduct(dto.productId);
+    } else if (influencerId) {
+      productView = (
+        await this.getInfluencerShopProduct(influencerId, dto.productId)
+      ).product;
+    } else {
+      productView = (await this.getShopProduct(clinicId!, dto.productId))
+        .product;
     }
 
-    const shop = influencerId
-      ? await this.getInfluencerShopProduct(influencerId, dto.productId)
-      : await this.getShopProduct(clinicId!, dto.productId);
-    if (!shop.product.inStock) {
+    if (!productView.inStock) {
       throw new BadRequestException('Product is out of stock');
     }
 
@@ -178,9 +206,15 @@ export class PublicService {
       throw new BadRequestException('Insufficient stock');
     }
 
+    const commissionSnapshot = isStorefront
+      ? null
+      : influencerId
+        ? (product.kol_commission_amount ?? null)
+        : (product.commission_amount ?? null);
+
     const order = this.ordersRepo.create({
       order_no: await this.generateOrderNo(),
-      clinic_id: influencerId ? null : clinicId,
+      clinic_id: isStorefront || influencerId ? null : clinicId,
       influencer_id: influencerId,
       product_id: dto.productId,
       customer_name: dto.customerName.trim(),
@@ -192,23 +226,24 @@ export class PublicService {
       shipping_address_code: dto.shippingAddressCode.trim(),
       quantity,
       unit_price_snapshot: product.price,
-      commission_snapshot: influencerId
-        ? (product.kol_commission_amount ?? null)
-        : (product.commission_amount ?? null),
+      commission_snapshot: commissionSnapshot,
       status: OrderStatus.PENDING_PAYMENT,
-      source: OrderSource.WONTECH,
+      source: isStorefront ? OrderSource.STOREFRONT : OrderSource.WONTECH,
       tracking_token: this.generateTrackingToken(),
     });
 
     const saved = await this.ordersRepo.save(order);
-    const partnerSegment = influencerId
-      ? `influencer/${influencerId}`
-      : clinicId;
+
+    const paymentUrl = isStorefront
+      ? `/storefront/${dto.productId}/checkout/pay?orderId=${saved.id}`
+      : `/shop/${
+          influencerId ? `influencer/${influencerId}` : clinicId
+        }/${dto.productId}/checkout/pay?orderId=${saved.id}`;
 
     return {
       orderId: saved.id,
       orderNo: saved.order_no,
-      paymentUrl: `/shop/${partnerSegment}/${dto.productId}/checkout/pay?orderId=${saved.id}`,
+      paymentUrl,
     };
   }
 

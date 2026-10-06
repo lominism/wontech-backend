@@ -4,4 +4,5 @@ export class UpdateInfluencerDto {
   addressCode?: string;
   contactEmail?: string;
   contactPhone?: string;
+  agencyId?: string | null;
 }

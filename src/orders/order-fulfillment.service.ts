@@ -4,8 +4,8 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { CreditLedgerReason } from '../clinics/clinic-group-credit-ledger.entity';
 import { ClinicGroupCreditLedgerEntry } from '../clinics/clinic-group-credit-ledger.entity';
 import { Clinic } from '../clinics/clinic.entity';
-import { InfluencerCreditLedgerReason } from '../influencers/influencer-group-credit-ledger.entity';
-import { InfluencerGroupCreditLedgerEntry } from '../influencers/influencer-group-credit-ledger.entity';
+import { InfluencerCreditLedgerReason } from '../influencers/influencer-credit-ledger.entity';
+import { InfluencerCreditLedgerEntry } from '../influencers/influencer-credit-ledger.entity';
 import { Influencer } from '../influencers/influencer.entity';
 import { InventoryStock } from '../products/stock.entity';
 import { Sale } from '../sales/sale.entity';
@@ -163,21 +163,23 @@ export class OrderFulfillmentService {
     manager: EntityManager,
     order: Order,
   ): Promise<void> {
-    const influencer =
-      order.influencer?.group_id != null
-        ? order.influencer
-        : await manager.findOne(Influencer, {
-            where: { id: order.influencer_id! },
-          });
+    if (!order.influencer_id) {
+      return;
+    }
 
-    if (!influencer?.group_id || !order.influencer_id) {
+    const influencer =
+      order.influencer ??
+      (await manager.findOne(Influencer, {
+        where: { id: order.influencer_id },
+      }));
+
+    if (!influencer) {
       return;
     }
 
     const savedSale = await manager.getRepository(Sale).save(
       manager.getRepository(Sale).create({
         order_id: order.id,
-        influencer_group_id: influencer.group_id,
         influencer_id: order.influencer_id,
         product_id: order.product_id,
         purchased_on: new Date().toISOString().slice(0, 10),
@@ -193,9 +195,10 @@ export class OrderFulfillmentService {
 
     const commissionTotal =
       Number(order.commission_snapshot) * order.quantity;
-    await manager.getRepository(InfluencerGroupCreditLedgerEntry).save(
-      manager.getRepository(InfluencerGroupCreditLedgerEntry).create({
-        group_id: influencer.group_id,
+    await manager.getRepository(InfluencerCreditLedgerEntry).save(
+      manager.getRepository(InfluencerCreditLedgerEntry).create({
+        influencer_id: influencer.id,
+        agency_id: influencer.agency_id ?? null,
         occurred_at: new Date(),
         change_amount: String(commissionTotal),
         reason: InfluencerCreditLedgerReason.COMMISSION,

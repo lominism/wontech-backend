@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AgenciesModule } from '../agencies/agencies.module';
+import { Agency } from '../agencies/agency.entity';
 import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/roles.guard';
 import { Sale } from '../sales/sale.entity';
 import { UsersModule } from '../users/users.module';
-import { InfluencerGroupCreditLedgerEntry } from './influencer-group-credit-ledger.entity';
-import { InfluencerGroup } from './influencer-group.entity';
+import { InfluencerCreditLedgerEntry } from './influencer-credit-ledger.entity';
 import { Influencer } from './influencer.entity';
 import { InfluencersController } from './influencers.controller';
 import { InfluencersService } from './influencers.service';
@@ -14,12 +15,13 @@ import { InfluencersService } from './influencers.service';
   imports: [
     TypeOrmModule.forFeature([
       Influencer,
-      InfluencerGroup,
-      InfluencerGroupCreditLedgerEntry,
+      Agency,
+      InfluencerCreditLedgerEntry,
       Sale,
     ]),
     AuthModule,
     UsersModule,
+    AgenciesModule,
   ],
   controllers: [InfluencersController],
   providers: [InfluencersService, RolesGuard],

@@ -1,7 +1,7 @@
 export class CreateProductDto {
   sku: string;
   name: string;
-  category: string;
+  category?: string | null;
   price: number;
   stock: number;
   commission?: number | null;

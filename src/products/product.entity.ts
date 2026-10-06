@@ -19,8 +19,8 @@ export class Product {
   @Column()
   name: string;
 
-  @Column()
-  category: string;
+  @Column({ type: 'text', nullable: true })
+  category: string | null;
 
   @Column({ type: 'numeric' })
   price: string;

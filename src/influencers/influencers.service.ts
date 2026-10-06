@@ -4,23 +4,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
+import { Agency } from '../agencies/agency.entity';
+import { AgenciesService } from '../agencies/agencies.service';
 import { Sale } from '../sales/sale.entity';
 import { UsersService } from '../users/users.service';
 import { AdjustInfluencerCreditDto } from './dto/adjust-credit.dto';
 import { CreateInfluencerDto } from './dto/create-influencer.dto';
 import { UpdateInfluencerDto } from './dto/update-influencer.dto';
 import {
+  InfluencerCreditLedgerEntry,
   InfluencerCreditLedgerReason,
-  InfluencerGroupCreditLedgerEntry,
-} from './influencer-group-credit-ledger.entity';
-import { InfluencerGroup } from './influencer-group.entity';
+} from './influencer-credit-ledger.entity';
 import { Influencer } from './influencer.entity';
 
 export type InfluencerWithStats = Influencer & {
   items_sold: number;
   revenue: number;
   credit: number;
+  agency_name: string | null;
 };
 
 export type InfluencerListResult = {
@@ -45,22 +47,18 @@ type InfluencerSalesRow = {
   revenue: string;
 };
 
-type GroupCreditRow = {
-  group_id: string;
-  credit: string;
-};
-
 @Injectable()
 export class InfluencersService {
   constructor(
     @InjectRepository(Influencer)
     private readonly influencersRepo: Repository<Influencer>,
-    @InjectRepository(InfluencerGroup)
-    private readonly groupsRepo: Repository<InfluencerGroup>,
+    @InjectRepository(Agency)
+    private readonly agenciesRepo: Repository<Agency>,
     @InjectRepository(Sale)
     private readonly salesRepo: Repository<Sale>,
-    @InjectRepository(InfluencerGroupCreditLedgerEntry)
-    private readonly ledgerRepo: Repository<InfluencerGroupCreditLedgerEntry>,
+    @InjectRepository(InfluencerCreditLedgerEntry)
+    private readonly ledgerRepo: Repository<InfluencerCreditLedgerEntry>,
+    private readonly agenciesService: AgenciesService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -74,9 +72,10 @@ export class InfluencersService {
     const safePage = Math.max(1, Number(page) || 1);
     const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
 
-    const qb = this.influencersRepo.createQueryBuilder('influencer');
+    const qb = this.influencersRepo
+      .createQueryBuilder('influencer')
+      .leftJoinAndSelect('influencer.agency', 'agency');
 
-    this.applyListableFilter(qb);
     this.applyInfluencerSort(qb, sortBy, sortDir);
 
     const query = search?.trim().toLowerCase();
@@ -102,15 +101,18 @@ export class InfluencersService {
   }
 
   async listAll(): Promise<InfluencerWithStats[]> {
-    const influencers = await this.influencersRepo
-      .createQueryBuilder('influencer')
-      .orderBy('LOWER(influencer.name)', 'ASC')
-      .getMany();
+    const influencers = await this.influencersRepo.find({
+      relations: { agency: true },
+      order: { name: 'ASC' },
+    });
     return this.attachStats(influencers);
   }
 
   async getById(id: string): Promise<InfluencerWithStats | null> {
-    const influencer = await this.influencersRepo.findOne({ where: { id } });
+    const influencer = await this.influencersRepo.findOne({
+      where: { id },
+      relations: { agency: true },
+    });
     if (!influencer) {
       return null;
     }
@@ -128,14 +130,23 @@ export class InfluencersService {
       throw new NotFoundException('Influencer not found');
     }
 
-    const entries = await this.ledgerRepo.find({
-      where: { group_id: influencer.group_id },
-      relations: {
-        performedByBackofficeUser: true,
-        relatedSale: { influencer: true },
-      },
-      order: { occurred_at: 'DESC' },
-    });
+    const entries = influencer.agency_id
+      ? await this.ledgerRepo.find({
+          where: { agency_id: influencer.agency_id },
+          relations: {
+            performedByBackofficeUser: true,
+            relatedSale: { influencer: true },
+          },
+          order: { occurred_at: 'DESC' },
+        })
+      : await this.ledgerRepo.find({
+          where: { influencer_id: influencerId, agency_id: IsNull() },
+          relations: {
+            performedByBackofficeUser: true,
+            relatedSale: { influencer: true },
+          },
+          order: { occurred_at: 'DESC' },
+        });
 
     return entries.map((entry) => this.toLedgerListItem(entry));
   }
@@ -171,7 +182,8 @@ export class InfluencersService {
       dto.direction === 'decrease' ? -Math.abs(amount) : Math.abs(amount);
 
     const entry = this.ledgerRepo.create({
-      group_id: influencer.group_id,
+      influencer_id: influencer.id,
+      agency_id: influencer.agency_id ?? null,
       occurred_at: new Date(),
       change_amount: String(changeAmount),
       reason: InfluencerCreditLedgerReason.ADJUSTMENT,
@@ -200,8 +212,8 @@ export class InfluencersService {
     const addressCode = dto.addressCode?.trim();
     const contactEmail = dto.contactEmail?.trim();
     const contactPhone = dto.contactPhone?.trim();
-    const parentInfluencerId = dto.parentInfluencerId?.trim() || null;
-    const newParentName = dto.newParentName?.trim() || null;
+    const agencyId = dto.agencyId?.trim() || null;
+    const newAgencyName = dto.newAgencyName?.trim() || null;
 
     if (
       !name ||
@@ -216,79 +228,40 @@ export class InfluencersService {
       );
     }
 
-    if (parentInfluencerId && newParentName) {
+    if (agencyId && newAgencyName) {
       throw new BadRequestException(
-        'Specify either an existing parent influencer or a new parent name, not both',
+        'Specify either an existing agency or a new agency name, not both',
       );
     }
 
-    const addressFields = {
-      address_street: addressStreet,
-      address_city: addressCity,
-      address_code: addressCode,
-    };
+    let resolvedAgencyId: string | null = null;
 
-    let saved: Influencer;
-
-    if (parentInfluencerId) {
-      const parent = await this.influencersRepo.findOne({
-        where: { id: parentInfluencerId },
-      });
-      if (!parent) {
-        throw new NotFoundException('Parent influencer not found');
+    if (agencyId) {
+      const agency = await this.agenciesRepo.findOne({ where: { id: agencyId } });
+      if (!agency) {
+        throw new NotFoundException('Agency not found');
       }
-
-      const influencer = this.influencersRepo.create({
-        name,
-        ...addressFields,
-        contact_email: contactEmail,
-        contact_phone: contactPhone,
-        group_id: parent.group_id,
-        parent_influencer_id: parent.id,
-      });
-      saved = await this.influencersRepo.save(influencer);
-    } else if (newParentName) {
-      const group = this.groupsRepo.create({ name: newParentName });
-      const savedGroup = await this.groupsRepo.save(group);
-
-      const parent = this.influencersRepo.create({
-        name: newParentName,
-        address_street: '—',
-        address_city: '—',
-        address_code: '—',
-        contact_email: contactEmail,
-        contact_phone: contactPhone,
-        group_id: savedGroup.id,
-        parent_influencer_id: null,
-      });
-      const savedParent = await this.influencersRepo.save(parent);
-
-      const influencer = this.influencersRepo.create({
-        name,
-        ...addressFields,
-        contact_email: contactEmail,
-        contact_phone: contactPhone,
-        group_id: savedGroup.id,
-        parent_influencer_id: savedParent.id,
-      });
-      saved = await this.influencersRepo.save(influencer);
-    } else {
-      const group = this.groupsRepo.create({ name });
-      const savedGroup = await this.groupsRepo.save(group);
-
-      const influencer = this.influencersRepo.create({
-        name,
-        ...addressFields,
-        contact_email: contactEmail,
-        contact_phone: contactPhone,
-        group_id: savedGroup.id,
-        parent_influencer_id: null,
-      });
-      saved = await this.influencersRepo.save(influencer);
+      resolvedAgencyId = agency.id;
+    } else if (newAgencyName) {
+      const created = await this.agenciesService.create({ name: newAgencyName });
+      resolvedAgencyId = created.id;
     }
 
-    const [withStats] = await this.attachStats([saved]);
-    return withStats;
+    const saved = await this.influencersRepo.save(
+      this.influencersRepo.create({
+        name,
+        address_street: addressStreet,
+        address_city: addressCity,
+        address_code: addressCode,
+        contact_email: contactEmail,
+        contact_phone: contactPhone,
+        agency_id: resolvedAgencyId,
+        parent_influencer_id: null,
+        group_id: null,
+      }),
+    );
+
+    return (await this.getById(saved.id))!;
   }
 
   async updateContact(
@@ -340,24 +313,29 @@ export class InfluencersService {
       influencer.contact_phone = phone;
     }
 
-    const saved = await this.influencersRepo.save(influencer);
-    const [withStats] = await this.attachStats([saved]);
-    return withStats;
+    if (dto.agencyId !== undefined) {
+      const nextAgencyId = dto.agencyId?.trim() || null;
+      if (nextAgencyId) {
+        const agency = await this.agenciesRepo.findOne({
+          where: { id: nextAgencyId },
+        });
+        if (!agency) {
+          throw new NotFoundException('Agency not found');
+        }
+        influencer.agency_id = agency.id;
+      } else {
+        influencer.agency_id = null;
+      }
+    }
+
+    await this.influencersRepo.save(influencer);
+    return (await this.getById(id))!;
   }
 
   async deleteInfluencer(id: string): Promise<void> {
     const influencer = await this.influencersRepo.findOne({ where: { id } });
     if (!influencer) {
       throw new NotFoundException('Influencer not found');
-    }
-
-    const childCount = await this.influencersRepo.count({
-      where: { parent_influencer_id: id },
-    });
-    if (childCount > 0) {
-      throw new BadRequestException(
-        "Remove this influencer's branches before deleting it",
-      );
     }
 
     const salesCount = await this.salesRepo.count({
@@ -394,13 +372,25 @@ export class InfluencersService {
         break;
       case 'credit':
         qb.orderBy(
-          `(SELECT COALESCE(SUM(l.change_amount::numeric), 0) FROM influencer_group_credit_ledger l WHERE l.group_id = influencer.group_id)`,
+          `CASE
+            WHEN influencer.agency_id IS NOT NULL THEN (
+              SELECT COALESCE(SUM(l.change_amount::numeric), 0)
+              FROM influencer_credit_ledger l
+              WHERE l.agency_id = influencer.agency_id
+            )
+            ELSE (
+              SELECT COALESCE(SUM(l.change_amount::numeric), 0)
+              FROM influencer_credit_ledger l
+              WHERE l.influencer_id = influencer.id AND l.agency_id IS NULL
+            )
+          END`,
           direction,
         );
         break;
       case 'parent':
+      case 'agency':
         qb.orderBy(
-          `(SELECT LOWER(p.name) FROM influencers p WHERE p.id = influencer.parent_influencer_id)`,
+          `(SELECT LOWER(a.name) FROM agencies a WHERE a.id = influencer.agency_id)`,
           direction,
           'NULLS LAST',
         );
@@ -409,17 +399,6 @@ export class InfluencersService {
       default:
         qb.orderBy('LOWER(influencer.name)', direction);
     }
-  }
-
-  private applyListableFilter(
-    qb: ReturnType<Repository<Influencer>['createQueryBuilder']>,
-  ): void {
-    qb.andWhere(
-      `NOT EXISTS (
-        SELECT 1 FROM influencers child
-        WHERE child.parent_influencer_id = influencer.id
-      )`,
-    );
   }
 
   private async attachStats(
@@ -441,12 +420,59 @@ export class InfluencersService {
       .groupBy('sale.influencer_id')
       .getRawMany<InfluencerSalesRow>();
 
-    const creditRows = await this.ledgerRepo
-      .createQueryBuilder('ledger')
-      .select('ledger.group_id', 'group_id')
-      .addSelect('COALESCE(SUM(ledger.change_amount), 0)', 'credit')
-      .groupBy('ledger.group_id')
-      .getRawMany<GroupCreditRow>();
+    const agencyIds = [
+      ...new Set(
+        influencers
+          .map((i) => i.agency_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const standaloneIds = influencers
+      .filter((i) => !i.agency_id)
+      .map((i) => i.id);
+
+    const creditByAgency = new Map<string, number>();
+    if (agencyIds.length > 0) {
+      const agencyCreditRows = await this.ledgerRepo
+        .createQueryBuilder('ledger')
+        .select('ledger.agency_id', 'agency_id')
+        .addSelect('COALESCE(SUM(ledger.change_amount), 0)', 'credit')
+        .where('ledger.agency_id IN (:...agencyIds)', { agencyIds })
+        .groupBy('ledger.agency_id')
+        .getRawMany<{ agency_id: string; credit: string }>();
+      for (const row of agencyCreditRows) {
+        creditByAgency.set(row.agency_id, Number(row.credit));
+      }
+    }
+
+    const creditByInfluencer = new Map<string, number>();
+    if (standaloneIds.length > 0) {
+      const personalCreditRows = await this.ledgerRepo
+        .createQueryBuilder('ledger')
+        .select('ledger.influencer_id', 'influencer_id')
+        .addSelect('COALESCE(SUM(ledger.change_amount), 0)', 'credit')
+        .where('ledger.influencer_id IN (:...standaloneIds)', { standaloneIds })
+        .andWhere('ledger.agency_id IS NULL')
+        .groupBy('ledger.influencer_id')
+        .getRawMany<{ influencer_id: string; credit: string }>();
+      for (const row of personalCreditRows) {
+        creditByInfluencer.set(row.influencer_id, Number(row.credit));
+      }
+    }
+
+    // Load agency names if relation missing
+    const missingAgencyIds = influencers
+      .filter((i) => i.agency_id && !i.agency)
+      .map((i) => i.agency_id!);
+    const agenciesById = new Map<string, Agency>();
+    if (missingAgencyIds.length > 0) {
+      const agencies = await this.agenciesRepo.find({
+        where: { id: In([...new Set(missingAgencyIds)]) },
+      });
+      for (const agency of agencies) {
+        agenciesById.set(agency.id, agency);
+      }
+    }
 
     const salesByInfluencer = new Map(
       salesRows.map((row) => [
@@ -458,26 +484,32 @@ export class InfluencersService {
       ]),
     );
 
-    const creditByGroup = new Map(
-      creditRows.map((row) => [row.group_id, Number(row.credit)]),
-    );
-
     return influencers.map((influencer) => {
       const sales = salesByInfluencer.get(influencer.id) ?? {
         items_sold: 0,
         revenue: 0,
       };
+      const agencyName =
+        influencer.agency?.name ??
+        (influencer.agency_id
+          ? (agenciesById.get(influencer.agency_id)?.name ?? null)
+          : null);
+      const credit = influencer.agency_id
+        ? (creditByAgency.get(influencer.agency_id) ?? 0)
+        : (creditByInfluencer.get(influencer.id) ?? 0);
+
       return {
         ...influencer,
         items_sold: sales.items_sold,
         revenue: sales.revenue,
-        credit: creditByGroup.get(influencer.group_id) ?? 0,
+        credit,
+        agency_name: agencyName,
       };
     });
   }
 
   private toLedgerListItem(
-    entry: InfluencerGroupCreditLedgerEntry,
+    entry: InfluencerCreditLedgerEntry,
   ): InfluencerCreditLedgerListItem {
     return {
       id: entry.id,
@@ -489,7 +521,7 @@ export class InfluencersService {
     };
   }
 
-  private ledgerUserName(entry: InfluencerGroupCreditLedgerEntry): string {
+  private ledgerUserName(entry: InfluencerCreditLedgerEntry): string {
     if (entry.performed_by_name) {
       return entry.performed_by_name;
     }

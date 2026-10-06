@@ -8,7 +8,8 @@ import {
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Sale } from '../sales/sale.entity';
-import { InfluencerGroup } from './influencer-group.entity';
+import { Agency } from '../agencies/agency.entity';
+import { Influencer } from './influencer.entity';
 
 export enum InfluencerCreditLedgerReason {
   COMMISSION = 'commission',
@@ -16,19 +17,26 @@ export enum InfluencerCreditLedgerReason {
   REDEMPTION = 'redemption',
 }
 
-@Entity('influencer_group_credit_ledger')
-export class InfluencerGroupCreditLedgerEntry {
+@Entity('influencer_credit_ledger')
+export class InfluencerCreditLedgerEntry {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => InfluencerGroup, (group) => group.creditLedgerEntries, {
-    nullable: false,
-  })
-  @JoinColumn({ name: 'group_id' })
-  group: InfluencerGroup;
+  @ManyToOne(() => Influencer, { nullable: false })
+  @JoinColumn({ name: 'influencer_id' })
+  influencer: Influencer;
 
   @Column({ type: 'uuid' })
-  group_id: string;
+  influencer_id: string;
+
+  @ManyToOne(() => Agency, (agency) => agency.creditLedgerEntries, {
+    nullable: true,
+  })
+  @JoinColumn({ name: 'agency_id' })
+  agency?: Agency | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  agency_id?: string | null;
 
   @Column({ type: 'timestamptz' })
   occurred_at: Date;

@@ -24,6 +24,7 @@ export enum OrderSource {
   WONTECH = 'wontech',
   LAZADA = 'lazada',
   SHOPEE = 'shopee',
+  STOREFRONT = 'storefront',
 }
 
 @Entity('orders')

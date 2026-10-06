@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { ClinicGroupCreditLedgerEntry } from '../clinics/clinic-group-credit-ledger.entity';
 import { ClinicsModule } from '../clinics/clinics.module';
-import { InfluencerGroupCreditLedgerEntry } from '../influencers/influencer-group-credit-ledger.entity';
+import { InfluencerCreditLedgerEntry } from '../influencers/influencer-credit-ledger.entity';
 import { InfluencersModule } from '../influencers/influencers.module';
 import { ProductsModule } from '../products/products.module';
 import { InventoryStock } from '../products/stock.entity';
@@ -23,7 +23,7 @@ import { EmailService } from '../email/email.service';
       InventoryStock,
       Sale,
       ClinicGroupCreditLedgerEntry,
-      InfluencerGroupCreditLedgerEntry,
+      InfluencerCreditLedgerEntry,
     ]),
     AuthModule,
     ProductsModule,
