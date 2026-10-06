@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { User, UserRole } from './user.entity';
+import { PreferredLocale, User, UserRole } from './user.entity';
 import { InvitationStatus, UserInvitation } from './user-invitation.entity';
 import { ClinicGroupCreditLedgerEntry } from '../clinics/clinic-group-credit-ledger.entity';
 import { FirebaseAdminService } from '../firebase/firebase-admin.service';
@@ -127,6 +128,47 @@ export class UsersService {
 
   async findByFirebaseUid(firebaseUid: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { firebaseUid } });
+  }
+
+  async updateProfile(
+    firebaseUid: string,
+    data: {
+      firstName: string;
+      lastName: string;
+      avatarUrl?: string | null;
+      preferredLocale?: string;
+    },
+  ): Promise<User> {
+    const user = await this.findByFirebaseUid(firebaseUid);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const firstName = data.firstName?.trim() ?? '';
+    const lastName = data.lastName?.trim() ?? '';
+    if (!firstName || !lastName) {
+      throw new BadRequestException('First name and last name are required');
+    }
+
+    user.firstName = firstName;
+    user.lastName = lastName;
+    if (data.avatarUrl !== undefined) {
+      const url = data.avatarUrl?.trim() || null;
+      user.avatarUrl = url;
+    }
+    if (data.preferredLocale !== undefined) {
+      user.preferredLocale = this.parsePreferredLocale(data.preferredLocale);
+    }
+
+    return this.usersRepository.save(user);
+  }
+
+  private parsePreferredLocale(value: string): PreferredLocale {
+    const locale = value?.trim().toLowerCase();
+    if (locale === PreferredLocale.EN || locale === PreferredLocale.TH) {
+      return locale;
+    }
+    throw new BadRequestException('Preferred locale must be en or th');
   }
 
   // ─── Member management (owner-only) ────────────────────────────────────────

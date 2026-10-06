@@ -72,9 +72,7 @@ export class InfluencersService {
     const safePage = Math.max(1, Number(page) || 1);
     const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
 
-    const qb = this.influencersRepo
-      .createQueryBuilder('influencer')
-      .leftJoinAndSelect('influencer.agency', 'agency');
+    const qb = this.influencersRepo.createQueryBuilder('influencer');
 
     this.applyInfluencerSort(qb, sortBy, sortDir);
 
