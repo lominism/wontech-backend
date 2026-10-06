@@ -1,8 +1,16 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { UsersService } from './users.service';
 import { SyncUserDto } from './dto/sync-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Controller('auth')
 export class UsersController {
@@ -31,5 +39,17 @@ export class UsersController {
       lastName,
     );
     return user;
+  }
+
+  @Patch('me')
+  @UseGuards(FirebaseAuthGuard)
+  async updateMe(@Req() req: Request, @Body() body: UpdateProfileDto) {
+    const { uid } = req['firebaseUser'];
+    return this.usersService.updateProfile(uid, {
+      firstName: body.firstName,
+      lastName: body.lastName,
+      avatarUrl: body.avatarUrl,
+      preferredLocale: body.preferredLocale,
+    });
   }
 }

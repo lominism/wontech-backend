@@ -52,12 +52,16 @@ export class ProductsService {
     const product = this.productsRepo.create({
       sku: dto.sku,
       name: dto.name,
-      category: dto.category,
+      category: this.normalizeCategory(dto.category),
       price: String(dto.price),
       commission_amount:
         dto.commission === null || dto.commission === undefined
           ? null
           : String(dto.commission),
+      kol_commission_amount:
+        dto.kolCommission === null || dto.kolCommission === undefined
+          ? null
+          : String(dto.kolCommission),
       description: dto.description ?? null,
       brand: dto.brand ?? null,
       weight: dto.weight ?? null,
@@ -115,12 +119,16 @@ export class ProductsService {
 
     product.sku = dto.sku;
     product.name = dto.name;
-    product.category = dto.category;
+    product.category = this.normalizeCategory(dto.category);
     product.price = String(dto.price);
     product.commission_amount =
       dto.commission === null || dto.commission === undefined
         ? null
         : String(dto.commission);
+    product.kol_commission_amount =
+      dto.kolCommission === null || dto.kolCommission === undefined
+        ? null
+        : String(dto.kolCommission);
     product.description = dto.description ?? null;
     product.brand = dto.brand ?? null;
     product.weight = dto.weight ?? null;
@@ -173,6 +181,12 @@ export class ProductsService {
       this.salesRepo.count({ where: { product_id: id } }),
     ]);
     return orderCount > 0 || saleCount > 0;
+  }
+
+  private normalizeCategory(category?: string | null): string | null {
+    if (category == null) return null;
+    const trimmed = category.trim();
+    return trimmed ? trimmed : null;
   }
 
   private normalizeProductImages(product: Product): Product {

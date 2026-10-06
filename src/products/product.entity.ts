@@ -19,14 +19,17 @@ export class Product {
   @Column()
   name: string;
 
-  @Column()
-  category: string;
+  @Column({ type: 'text', nullable: true })
+  category: string | null;
 
   @Column({ type: 'numeric' })
   price: string;
 
   @Column({ type: 'numeric', nullable: true })
   commission_amount?: string | null;
+
+  @Column({ type: 'numeric', nullable: true })
+  kol_commission_amount?: string | null;
 
   @Column({ type: 'text', nullable: true })
   description?: string | null;

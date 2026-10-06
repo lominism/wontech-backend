@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { ClinicsService } from '../clinics/clinics.service';
 import { EmailService } from '../email/email.service';
+import { InfluencersService } from '../influencers/influencers.service';
 import { ProductsService } from '../products/products.service';
 import { CreateManualOrderDto } from './dto/create-manual-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -52,6 +53,8 @@ export type OrderDetail = {
   total: number;
   clinicId: string | null;
   clinicName: string;
+  influencerId: string | null;
+  influencerName: string;
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -96,6 +99,7 @@ export class OrdersService {
     private readonly ordersRepo: Repository<Order>,
     private readonly productsService: ProductsService,
     private readonly clinicsService: ClinicsService,
+    private readonly influencersService: InfluencersService,
     private readonly fulfillmentService: OrderFulfillmentService,
     private readonly autoCompleteService: OrdersAutoCompleteService,
     private readonly emailService: EmailService,
@@ -119,6 +123,7 @@ export class OrdersService {
     const qb = this.ordersRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.clinic', 'clinic')
+      .leftJoinAndSelect('order.influencer', 'influencer')
       .leftJoinAndSelect('order.product', 'product');
 
     this.applyOrderSort(qb, sortBy, sortDir);
@@ -230,10 +235,25 @@ export class OrdersService {
       throw new BadRequestException('Insufficient stock');
     }
 
+    if (dto.clinicId && dto.influencerId) {
+      throw new BadRequestException(
+        'An order can be attributed to a clinic or an influencer, not both',
+      );
+    }
+
     if (dto.clinicId) {
       const foundClinic = await this.clinicsService.getById(dto.clinicId);
       if (!foundClinic) {
         throw new NotFoundException('Clinic not found');
+      }
+    }
+
+    if (dto.influencerId) {
+      const foundInfluencer = await this.influencersService.getById(
+        dto.influencerId,
+      );
+      if (!foundInfluencer) {
+        throw new NotFoundException('Influencer not found');
       }
     }
 
@@ -246,7 +266,8 @@ export class OrdersService {
 
     const order = this.ordersRepo.create({
       order_no: await this.generateOrderNo(),
-      clinic_id: dto.clinicId ?? null,
+      clinic_id: dto.influencerId ? null : (dto.clinicId ?? null),
+      influencer_id: dto.influencerId ?? null,
       product_id: dto.productId,
       customer_name: this.optionalTrim(dto.customerName),
       customer_email: this.optionalTrim(dto.customerEmail),
@@ -257,7 +278,9 @@ export class OrdersService {
       shipping_address_code: this.optionalTrim(dto.shippingAddressCode),
       quantity,
       unit_price_snapshot: product.price,
-      commission_snapshot: product.commission_amount ?? null,
+      commission_snapshot: dto.influencerId
+        ? (product.kol_commission_amount ?? null)
+        : (product.commission_amount ?? null),
       status,
       source: dto.source,
       shipped_at: shippedAt,
@@ -271,7 +294,7 @@ export class OrdersService {
 
     const withRelations = await this.ordersRepo.findOne({
       where: { id: saved.id },
-      relations: { clinic: true, product: true },
+      relations: { clinic: true, influencer: true, product: true },
     });
 
     if (!withRelations) {
@@ -287,6 +310,7 @@ export class OrdersService {
     const orders = await this.ordersRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.clinic', 'clinic')
+      .leftJoinAndSelect('order.influencer', 'influencer')
       .leftJoinAndSelect('order.product', 'product')
       .where('order.status IN (:...statuses)', {
         statuses: [
@@ -306,7 +330,7 @@ export class OrdersService {
   async getById(id: string): Promise<OrderDetail> {
     const order = await this.ordersRepo.findOne({
       where: { id },
-      relations: { clinic: true, product: true },
+      relations: { clinic: true, influencer: true, product: true },
     });
 
     if (!order) {
@@ -319,7 +343,7 @@ export class OrdersService {
   async updateStatus(id: string, dto: UpdateOrderDto): Promise<OrderListItem> {
     const order = await this.ordersRepo.findOne({
       where: { id },
-      relations: { clinic: true, product: true },
+      relations: { clinic: true, influencer: true, product: true },
     });
 
     if (!order) {
@@ -354,7 +378,7 @@ export class OrdersService {
   ): Promise<OrderDetail> {
     const order = await this.ordersRepo.findOne({
       where: { id },
-      relations: { clinic: true, product: true },
+      relations: { clinic: true, influencer: true, product: true },
     });
 
     if (!order) {
@@ -522,7 +546,10 @@ export class OrdersService {
       orderNo: order.order_no,
       date: order.createdAt.toISOString(),
       customer: order.customer_name ?? sourceLabel ?? '—',
-      clinic: order.clinic?.name ?? '—',
+      clinic:
+        order.influencer?.name ??
+        order.clinic?.name ??
+        (order.source === OrderSource.STOREFRONT ? 'Storefront' : '—'),
       item: order.product?.name ?? '',
       qty: order.quantity,
       status: order.status,
@@ -566,7 +593,11 @@ export class OrdersService {
       unitPrice,
       total: unitPrice * order.quantity,
       clinicId: order.clinic_id ?? null,
-      clinicName: order.clinic?.name ?? '—',
+      clinicName:
+        order.clinic?.name ??
+        (order.source === OrderSource.STOREFRONT ? 'Storefront' : '—'),
+      influencerId: order.influencer_id ?? null,
+      influencerName: order.influencer?.name ?? '—',
       customerName: order.customer_name ?? null,
       customerEmail: order.customer_email ?? null,
       customerPhone: order.customer_phone ?? null,

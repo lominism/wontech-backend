@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -35,10 +34,8 @@ export class ProductsController {
   }
 
   @Post()
-  async create(@Body() _dto: CreateProductDto) {
-    // Temporary: single-product catalog. Remove this throw and call
-    // return this.productsService.create(_dto); to re-enable creation.
-    throw new ForbiddenException('Product creation is temporarily disabled');
+  async create(@Body() dto: CreateProductDto) {
+    return this.productsService.create(dto);
   }
 
   @Patch(':id')

@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Clinic } from '../clinics/clinic.entity';
+import { Influencer } from '../influencers/influencer.entity';
 import { Product } from '../products/product.entity';
 
 export enum OrderStatus {
@@ -23,6 +24,7 @@ export enum OrderSource {
   WONTECH = 'wontech',
   LAZADA = 'lazada',
   SHOPEE = 'shopee',
+  STOREFRONT = 'storefront',
 }
 
 @Entity('orders')
@@ -39,6 +41,13 @@ export class Order {
 
   @Column({ type: 'uuid', nullable: true })
   clinic_id?: string | null;
+
+  @ManyToOne(() => Influencer, { nullable: true })
+  @JoinColumn({ name: 'influencer_id' })
+  influencer?: Influencer | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  influencer_id?: string | null;
 
   @ManyToOne(() => Product, { nullable: false })
   @JoinColumn({ name: 'product_id' })

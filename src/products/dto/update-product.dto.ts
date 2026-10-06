@@ -1,10 +1,11 @@
 export class UpdateProductDto {
   sku: string;
   name: string;
-  category: string;
+  category?: string | null;
   price: number;
   stock: number;
   commission?: number | null;
+  kolCommission?: number | null;
   description?: string | null;
   brand?: string | null;
   weight?: string | null;
