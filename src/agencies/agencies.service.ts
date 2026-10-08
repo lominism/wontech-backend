@@ -125,8 +125,30 @@ export class AgenciesService implements OnModuleInit {
       );
     }
 
-    await this.influencersRepo.update({ agency_id: id }, { agency_id: null });
-    await this.agenciesRepo.remove(agency);
+    // Credit can be 0 while historical ledger rows still reference the agency.
+    // Clear those FKs (including soft-deleted influencers) before deleting.
+    await this.dataSource.transaction(async (manager) => {
+      await manager
+        .createQueryBuilder()
+        .delete()
+        .from(InfluencerCreditLedgerEntry)
+        .where('agency_id = :id', { id })
+        .execute();
+
+      await manager
+        .createQueryBuilder()
+        .update(Influencer)
+        .set({ agency_id: null })
+        .where('agency_id = :id', { id })
+        .execute();
+
+      await manager
+        .createQueryBuilder()
+        .delete()
+        .from(Agency)
+        .where('id = :id', { id })
+        .execute();
+    });
   }
 
   private async migrateFromParentHierarchy(): Promise<void> {
