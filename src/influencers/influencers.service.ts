@@ -312,7 +312,24 @@ export class InfluencersService {
     }
 
     if (dto.agencyId !== undefined) {
+      const previousAgencyId = influencer.agency_id ?? null;
       const nextAgencyId = dto.agencyId?.trim() || null;
+
+      // Standalone → agency: personal credit must be 0, then clear personal history.
+      if (!previousAgencyId && nextAgencyId) {
+        const personalCredit = await this.getPersonalCreditBalance(id);
+        if (Math.abs(personalCredit) > 1e-9) {
+          throw new BadRequestException(
+            'Personal credit must be 0 before joining an agency. Use up existing credit first.',
+          );
+        }
+
+        await this.ledgerRepo.delete({
+          influencer_id: id,
+          agency_id: IsNull(),
+        });
+      }
+
       if (nextAgencyId) {
         const agency = await this.agenciesRepo.findOne({
           where: { id: nextAgencyId },
@@ -328,6 +345,19 @@ export class InfluencersService {
 
     await this.influencersRepo.save(influencer);
     return (await this.getById(id))!;
+  }
+
+  private async getPersonalCreditBalance(
+    influencerId: string,
+  ): Promise<number> {
+    const row = await this.ledgerRepo
+      .createQueryBuilder('ledger')
+      .select('COALESCE(SUM(ledger.change_amount), 0)', 'credit')
+      .where('ledger.influencer_id = :influencerId', { influencerId })
+      .andWhere('ledger.agency_id IS NULL')
+      .getRawOne<{ credit: string }>();
+
+    return Number(row?.credit ?? 0);
   }
 
   async deleteInfluencer(id: string): Promise<void> {
