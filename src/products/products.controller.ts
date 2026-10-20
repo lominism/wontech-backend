@@ -7,8 +7,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -22,6 +25,19 @@ export class ProductsController {
   @Get()
   async list() {
     return this.productsService.list();
+  }
+
+  @Get(':id/history')
+  async history(
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.productsService.listHistory(
+      id,
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 10,
+    );
   }
 
   @Get(':id')
@@ -39,8 +55,13 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.update(id, dto);
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @Req() req: Request,
+  ) {
+    const { uid } = req['firebaseUser'];
+    return this.productsService.update(id, dto, uid);
   }
 
   @Delete(':id')

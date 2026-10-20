@@ -41,6 +41,13 @@ export type InfluencerCreditLedgerListItem = {
   note: string | null;
 };
 
+export type InfluencerCreditLedgerResult = {
+  items: InfluencerCreditLedgerListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 type InfluencerSalesRow = {
   influencer_id: string;
   items_sold: string;
@@ -120,7 +127,9 @@ export class InfluencersService {
 
   async getCreditLedger(
     influencerId: string,
-  ): Promise<InfluencerCreditLedgerListItem[]> {
+    page = 1,
+    pageSize = 10,
+  ): Promise<InfluencerCreditLedgerResult> {
     const influencer = await this.influencersRepo.findOne({
       where: { id: influencerId },
     });
@@ -128,25 +137,36 @@ export class InfluencersService {
       throw new NotFoundException('Influencer not found');
     }
 
-    const entries = influencer.agency_id
-      ? await this.ledgerRepo.find({
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
+    const skip = (safePage - 1) * safePageSize;
+
+    const findOptions = {
+      relations: {
+        performedByBackofficeUser: true,
+        relatedSale: { influencer: true },
+      },
+      order: { occurred_at: 'DESC' as const },
+      skip,
+      take: safePageSize,
+    };
+
+    const [entries, total] = influencer.agency_id
+      ? await this.ledgerRepo.findAndCount({
+          ...findOptions,
           where: { agency_id: influencer.agency_id },
-          relations: {
-            performedByBackofficeUser: true,
-            relatedSale: { influencer: true },
-          },
-          order: { occurred_at: 'DESC' },
         })
-      : await this.ledgerRepo.find({
+      : await this.ledgerRepo.findAndCount({
+          ...findOptions,
           where: { influencer_id: influencerId, agency_id: IsNull() },
-          relations: {
-            performedByBackofficeUser: true,
-            relatedSale: { influencer: true },
-          },
-          order: { occurred_at: 'DESC' },
         });
 
-    return entries.map((entry) => this.toLedgerListItem(entry));
+    return {
+      items: entries.map((entry) => this.toLedgerListItem(entry)),
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+    };
   }
 
   async adjustCredit(
