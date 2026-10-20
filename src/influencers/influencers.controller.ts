@@ -49,8 +49,16 @@ export class InfluencersController {
   }
 
   @Get(':id/credit-ledger')
-  async getCreditLedger(@Param('id') id: string) {
-    return this.influencersService.getCreditLedger(id);
+  async getCreditLedger(
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.influencersService.getCreditLedger(
+      id,
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 10,
+    );
   }
 
   @Post(':id/credit-adjustment')

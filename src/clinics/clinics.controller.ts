@@ -26,6 +26,7 @@ export class ClinicsController {
     @Query('pageSize') pageSize?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
+    @Query('filter') filter?: string,
   ) {
     return this.clinicsService.listPaginated(
       search,
@@ -33,12 +34,21 @@ export class ClinicsController {
       pageSize ? Number(pageSize) : 10,
       sortBy,
       sortDir,
+      filter,
     );
   }
 
   @Get(':id/credit-ledger')
-  async getCreditLedger(@Param('id') id: string) {
-    return this.clinicsService.getCreditLedger(id);
+  async getCreditLedger(
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.clinicsService.getCreditLedger(
+      id,
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 10,
+    );
   }
 
   @Post(':id/credit-adjustment')

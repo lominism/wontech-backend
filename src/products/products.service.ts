@@ -4,11 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Order } from '../orders/order.entity';
+import { In, Not, Repository } from 'typeorm';
+import { Order, OrderSource, OrderStatus } from '../orders/order.entity';
 import { Sale } from '../sales/sale.entity';
+import { UsersService } from '../users/users.service';
 import { Product } from './product.entity';
 import { InventoryStock } from './stock.entity';
+import { InventoryStockLedgerEntry } from './inventory-stock-ledger.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import {
@@ -18,6 +20,24 @@ import {
 
 export type ProductWithMeta = Product & { has_orders: boolean };
 
+export type ProductHistoryItem = {
+  id: string;
+  type: 'sale' | 'adjustment';
+  date: string;
+  quantity: number;
+  customerName: string | null;
+  clinicName: string | null;
+  actorName: string | null;
+  delta: number | null;
+};
+
+export type ProductHistoryResult = {
+  items: ProductHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -25,10 +45,13 @@ export class ProductsService {
     private readonly productsRepo: Repository<Product>,
     @InjectRepository(InventoryStock)
     private readonly stockRepo: Repository<InventoryStock>,
+    @InjectRepository(InventoryStockLedgerEntry)
+    private readonly stockLedgerRepo: Repository<InventoryStockLedgerEntry>,
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
     @InjectRepository(Sale)
     private readonly salesRepo: Repository<Sale>,
+    private readonly usersService: UsersService,
   ) {}
 
   async list(): Promise<Product[]> {
@@ -104,7 +127,11 @@ export class ProductsService {
     return Object.assign(product, { has_orders });
   }
 
-  async update(id: string, dto: UpdateProductDto): Promise<Product> {
+  async update(
+    id: string,
+    dto: UpdateProductDto,
+    firebaseUid?: string,
+  ): Promise<Product> {
     const product = await this.getById(id);
     if (!product) {
       throw new NotFoundException('Product not found');
@@ -147,8 +174,22 @@ export class ProductsService {
       where: { product_id: id },
     });
     if (stock) {
-      stock.quantity_on_hand = Math.max(0, Number(dto.stock ?? 0));
+      const quantityBefore = stock.quantity_on_hand;
+      const quantityAfter = Math.max(0, Number(dto.stock ?? 0));
+      const delta = quantityAfter - quantityBefore;
+
+      stock.quantity_on_hand = quantityAfter;
       await this.stockRepo.save(stock);
+
+      if (delta !== 0) {
+        await this.recordStockAdjustment({
+          productId: id,
+          delta,
+          quantityBefore,
+          quantityAfter,
+          firebaseUid,
+        });
+      }
     }
 
     return this.normalizeProductImages(
@@ -157,6 +198,73 @@ export class ProductsService {
         relations: { stock: true },
       }),
     );
+  }
+
+  async listHistory(
+    productId: string,
+    page = 1,
+    pageSize = 10,
+  ): Promise<ProductHistoryResult> {
+    const product = await this.getById(productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
+
+    const [orders, adjustments] = await Promise.all([
+      this.ordersRepo.find({
+        where: {
+          product_id: productId,
+          status: Not(
+            In([OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED]),
+          ),
+        },
+        relations: { clinic: true, influencer: true },
+        order: { createdAt: 'DESC' },
+      }),
+      this.stockLedgerRepo.find({
+        where: { product_id: productId },
+        order: { createdAt: 'DESC' },
+      }),
+    ]);
+
+    const saleItems: ProductHistoryItem[] = orders.map((order) => ({
+      id: order.id,
+      type: 'sale',
+      date: order.createdAt.toISOString(),
+      quantity: order.quantity,
+      customerName: this.saleCustomerName(order),
+      clinicName: this.saleClinicName(order),
+      actorName: null,
+      delta: null,
+    }));
+
+    const adjustmentItems: ProductHistoryItem[] = adjustments.map((entry) => ({
+      id: entry.id,
+      type: 'adjustment',
+      date: entry.createdAt.toISOString(),
+      quantity: Math.abs(entry.delta),
+      customerName: null,
+      clinicName: 'Wontech Admin',
+      actorName: entry.performed_by_name?.trim() || 'System',
+      delta: entry.delta,
+    }));
+
+    const merged = [...saleItems, ...adjustmentItems].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
+
+    const total = merged.length;
+    const start = (safePage - 1) * safePageSize;
+
+    return {
+      items: merged.slice(start, start + safePageSize),
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+    };
   }
 
   async delete(id: string): Promise<void> {
@@ -171,6 +279,7 @@ export class ProductsService {
       );
     }
 
+    await this.stockLedgerRepo.delete({ product_id: id });
     await this.stockRepo.delete({ product_id: id });
     await this.productsRepo.delete({ id });
   }
@@ -181,6 +290,60 @@ export class ProductsService {
       this.salesRepo.count({ where: { product_id: id } }),
     ]);
     return orderCount > 0 || saleCount > 0;
+  }
+
+  private async recordStockAdjustment(params: {
+    productId: string;
+    delta: number;
+    quantityBefore: number;
+    quantityAfter: number;
+    firebaseUid?: string;
+  }): Promise<void> {
+    let performedByUserId: string | null = null;
+    let performedByName = 'System';
+
+    if (params.firebaseUid) {
+      const user = await this.usersService.findByFirebaseUid(
+        params.firebaseUid,
+      );
+      if (user) {
+        performedByUserId = user.id;
+        performedByName = this.backofficeUserName(user);
+      }
+    }
+
+    const entry = this.stockLedgerRepo.create({
+      product_id: params.productId,
+      delta: params.delta,
+      quantity_before: params.quantityBefore,
+      quantity_after: params.quantityAfter,
+      performed_by_backoffice_user_id: performedByUserId,
+      performed_by_name: performedByName,
+    });
+    await this.stockLedgerRepo.save(entry);
+  }
+
+  private saleCustomerName(order: Order): string | null {
+    if (order.customer_name?.trim()) return order.customer_name.trim();
+    if (order.source === OrderSource.LAZADA) return 'Lazada';
+    if (order.source === OrderSource.SHOPEE) return 'Shopee';
+    return null;
+  }
+
+  private saleClinicName(order: Order): string | null {
+    if (order.influencer?.name?.trim()) return order.influencer.name.trim();
+    if (order.clinic?.name?.trim()) return order.clinic.name.trim();
+    if (order.source === OrderSource.STOREFRONT) return 'Storefront';
+    return null;
+  }
+
+  private backofficeUserName(user: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email: string;
+  }): string {
+    const parts = [user.firstName, user.lastName].filter(Boolean);
+    return parts.length > 0 ? parts.join(' ') : user.email;
   }
 
   private normalizeCategory(category?: string | null): string | null {

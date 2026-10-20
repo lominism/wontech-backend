@@ -39,6 +39,13 @@ export type CreditLedgerListItem = {
   note: string | null;
 };
 
+export type CreditLedgerResult = {
+  items: CreditLedgerListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 type ClinicSalesRow = {
   clinic_id: string;
   items_sold: string;
@@ -70,6 +77,7 @@ export class ClinicsService {
     pageSize = 10,
     sortBy?: string,
     sortDir?: string,
+    filter?: string,
   ): Promise<ClinicListResult> {
     const safePage = Math.max(1, Number(page) || 1);
     const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
@@ -77,7 +85,18 @@ export class ClinicsService {
     const qb = this.clinicsRepo.createQueryBuilder('clinic');
 
     this.applyListableFilter(qb);
-    this.applyClinicSort(qb, sortBy, sortDir);
+    this.applyClinicListFilter(qb, filter);
+
+    // Group child clinics under the same parent when that filter is active.
+    if (filter?.trim() === 'with_parent') {
+      qb.orderBy(
+        `(SELECT LOWER(p.name) FROM clinics p WHERE p.id = clinic.parent_clinic_id)`,
+        'ASC',
+        'NULLS LAST',
+      ).addOrderBy('LOWER(clinic.name)', 'ASC');
+    } else {
+      this.applyClinicSort(qb, sortBy, sortDir);
+    }
 
     const query = search?.trim().toLowerCase();
     if (query) {
@@ -120,22 +139,36 @@ export class ClinicsService {
     return withStats;
   }
 
-  async getCreditLedger(clinicId: string): Promise<CreditLedgerListItem[]> {
+  async getCreditLedger(
+    clinicId: string,
+    page = 1,
+    pageSize = 10,
+  ): Promise<CreditLedgerResult> {
     const clinic = await this.clinicsRepo.findOne({ where: { id: clinicId } });
     if (!clinic) {
       throw new NotFoundException('Clinic not found');
     }
 
-    const entries = await this.ledgerRepo.find({
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
+
+    const [entries, total] = await this.ledgerRepo.findAndCount({
       where: { group_id: clinic.group_id },
       relations: {
         performedByBackofficeUser: true,
         relatedSale: { clinic: true },
       },
       order: { occurred_at: 'DESC' },
+      skip: (safePage - 1) * safePageSize,
+      take: safePageSize,
     });
 
-    return entries.map((entry) => this.toLedgerListItem(entry));
+    return {
+      items: entries.map((entry) => this.toLedgerListItem(entry)),
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+    };
   }
 
   async adjustCredit(
@@ -416,6 +449,39 @@ export class ClinicsService {
         WHERE child.parent_clinic_id = clinic.id
       )`,
     );
+  }
+
+  private applyClinicListFilter(
+    qb: ReturnType<Repository<Clinic>['createQueryBuilder']>,
+    filter?: string,
+  ): void {
+    switch (filter?.trim()) {
+      case 'credit_5000_plus':
+        qb.andWhere(
+          `(SELECT COALESCE(SUM(l.change_amount::numeric), 0)
+            FROM clinic_group_credit_ledger l
+            WHERE l.group_id = clinic.group_id) >= 5000`,
+        );
+        break;
+      case 'no_sales':
+        qb.andWhere(
+          `(SELECT COALESCE(SUM(s.quantity), 0)
+            FROM sales s
+            WHERE s.clinic_id = clinic.id) = 0`,
+        );
+        break;
+      case 'single':
+        qb.andWhere('clinic.parent_clinic_id IS NULL');
+        break;
+      case 'with_parent':
+        qb.andWhere('clinic.parent_clinic_id IS NOT NULL');
+        break;
+      case 'all':
+      case undefined:
+      case '':
+      default:
+        break;
+    }
   }
 
   private async attachStats(clinics: Clinic[]): Promise<ClinicWithStats[]> {
